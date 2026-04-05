@@ -31,13 +31,49 @@ function detectChromeUserDataDir(): string | undefined {
   return undefined;
 }
 
+function detectHeliumUserDataDir(): string | undefined {
+  const platform = os.platform();
+  const home = os.homedir();
+  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'net.imput.helium');
+  if (platform === 'linux') return path.join(home, '.config', 'helium');
+  if (platform === 'win32') return path.join(home, 'AppData', 'Local', 'Helium', 'User Data');
+  return undefined;
+}
+
+export type BrowserType = 'chrome' | 'helium';
+
+export function detectBrowser(): BrowserType {
+  const heliumDir = detectHeliumUserDataDir();
+  if (heliumDir) {
+    try {
+      const fs = require('node:fs');
+      if (fs.existsSync(path.join(heliumDir, 'Default', 'Cookies'))) {
+        return 'helium';
+      }
+    } catch {}
+  }
+  return 'chrome';
+}
+
+export function getBrowserUserDataDir(browser: BrowserType): string | undefined {
+  if (browser === 'helium') return detectHeliumUserDataDir();
+  return detectChromeUserDataDir();
+}
+
 export function loadChromeSessionConfig(): ChromeSessionConfig {
   loadEnv();
-  const dir = process.env.FT_CHROME_USER_DATA_DIR ?? detectChromeUserDataDir();
+
+  const browserEnv = process.env.FT_BROWSER?.toLowerCase();
+  const browser: BrowserType = browserEnv === 'helium' ? 'helium' : 'chrome';
+
+  const dir = process.env.FT_CHROME_USER_DATA_DIR
+    ?? (browser === 'helium' ? detectHeliumUserDataDir() : undefined)
+    ?? detectChromeUserDataDir();
   if (!dir) {
     throw new Error(
-      'Could not detect Chrome user-data directory.\n' +
-      'Set FT_CHROME_USER_DATA_DIR in .env or pass --chrome-user-data-dir.'
+      'Could not detect browser user-data directory.\n' +
+      'Set FT_CHROME_USER_DATA_DIR in .env or pass --chrome-user-data-dir.\n' +
+      'For Helium: set FT_BROWSER=helium or pass --browser helium.'
     );
   }
   return {
