@@ -10,13 +10,16 @@ Free and open source. Designed for Mac.
 npm install -g fieldtheory
 ```
 
-Requires Node.js 20+ and Google Chrome.
+Requires Node.js 20+ and a Chromium-based browser (Chrome or [Helium](https://helium.computer/)).
 
 ## Quick start
 
 ```bash
-# 1. Sync your bookmarks (needs Chrome logged into X)
+# 1. Sync your bookmarks (needs browser logged into X)
 ft sync
+
+# Or explicitly use Helium
+ft sync --browser helium
 
 # 2. Search them
 ft search "distributed systems"
@@ -27,13 +30,14 @@ ft categories
 ft stats
 ```
 
-On first run, `ft sync` extracts your X session from Chrome and downloads your bookmarks into `~/.ft-bookmarks/`.
+On first run, `ft sync` extracts your X session from your browser and downloads your bookmarks into `~/.ft-bookmarks/`.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `ft sync` | Download and sync all bookmarks (no API required) |
+| `ft sync --browser helium` | Sync using Helium browser session instead of Chrome |
 | `ft sync --classify` | Sync then classify new bookmarks with LLM |
 | `ft sync --full` | Full history crawl (not just incremental) |
 | `ft search <query>` | Full-text search with BM25 ranking |
@@ -112,22 +116,41 @@ Use `ft classify` for LLM-powered classification that catches what regex misses.
 
 | Feature | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| Chrome session sync (`ft sync`) | Yes | No* | No* |
+| Browser session sync (`ft sync`) | Yes | No* | No* |
 | OAuth API sync (`ft sync --api`) | Yes | Yes | Yes |
 | Search, list, classify, viz | Yes | Yes | Yes |
 
-\*Chrome session extraction uses macOS Keychain. On other platforms, use `ft auth` + `ft sync --api`.
+\*Browser session extraction uses macOS Keychain. Supports Chrome and [Helium](https://helium.computer/) (auto-detected). On other platforms, use `ft auth` + `ft sync --api`.
 
 ## Security
 
 **Your data stays local.** No telemetry, no analytics, nothing phoned home. The CLI only makes network requests to X's API during sync.
 
-**Chrome session sync** reads cookies from Chrome's local database, uses them for the sync request, and discards them. Cookies are never stored separately.
+**Browser session sync** reads cookies from your browser's local database (Chrome or Helium), uses them for the sync request, and discards them. Cookies are never stored separately.
 
 **OAuth tokens** are stored with `chmod 600` (owner-only). Treat `~/.ft-bookmarks/oauth-token.json` like a password.
 
 **The default sync uses X's internal GraphQL API**, the same API that x.com uses in your browser. For the official v2 API, use `ft auth` + `ft sync --api`.
 
+## Helium browser support
+
+This fork adds native support for the [Helium browser](https://helium.computer/). Helium is a privacy-focused, open-source Chromium-based browser.
+
+To sync using Helium instead of Chrome:
+
+```bash
+ft sync --browser helium
+```
+
+Or set it as the default:
+
+```bash
+export FT_BROWSER=helium
+ft sync
+```
+
+Auto-detection works out of the box — if Helium has a Cookies database with an active X session, `ft sync` will use it. No configuration needed.
+
 ## License
 
-MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
+MIT — forked from [afar1/fieldtheory-cli](https://github.com/afar1/fieldtheory-cli) with Helium browser support.
