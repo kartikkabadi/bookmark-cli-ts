@@ -18,6 +18,7 @@ function getMacOSChromeKey(): Buffer {
     { service: 'Chromium Safe Storage', account: 'Chromium' },
     { service: 'Brave Safe Storage', account: 'Brave' },
     { service: 'Brave Browser Safe Storage', account: 'Brave Browser' },
+    { service: 'Helium Storage Key', account: 'Helium' },
   ];
 
   for (const candidate of candidates) {
@@ -37,7 +38,7 @@ function getMacOSChromeKey(): Buffer {
 
   throw new Error(
     'Could not read a browser Safe Storage password from the macOS Keychain.\n' +
-    'This is needed to decrypt Chrome-family cookies.\n' +
+    'This is needed to decrypt browser cookies (Chrome, Helium, Brave, etc.).\n' +
     'Fix: open the browser profile that is logged into X, then retry.\n' +
     'If you already use the API flow, prefer: ft sync --api'
   );
@@ -124,9 +125,9 @@ function queryDbVersion(dbPath: string): number {
 function queryCookies(dbPath: string, domain: string, names: string[]): { cookies: RawCookie[]; dbVersion: number } {
   if (!existsSync(dbPath)) {
     throw new Error(
-      `Chrome Cookies database not found at: ${dbPath}\n` +
-      'Fix: Make sure Google Chrome is installed and has been opened at least once.\n' +
-      'If you use a non-default Chrome profile, pass --chrome-profile-directory <name>.'
+      `Browser Cookies database not found at: ${dbPath}\n` +
+      'Fix: Make sure your browser (Chrome, Helium, etc.) is installed and has been opened at least once.\n' +
+      'If you use a non-default profile, pass --chrome-profile-directory <name>.'
     );
   }
 
@@ -151,10 +152,10 @@ function queryCookies(dbPath: string, domain: string, names: string[]): { cookie
       output = tryQuery(tmpDb);
     } catch (e2: any) {
       throw new Error(
-        `Could not read Chrome Cookies database.\n` +
+        `Could not read browser Cookies database.\n` +
         `Path: ${dbPath}\n` +
         `Error: ${e2.message}\n` +
-        'Fix: If Chrome is open, close it and retry. The database may be locked.'
+        'Fix: If your browser is open, close it and retry. The database may be locked.'
       );
     } finally {
       try { unlinkSync(tmpDb); } catch {}
@@ -208,15 +209,15 @@ export function extractChromeXCookies(
 
   if (!ct0) {
     throw new Error(
-      'No ct0 CSRF cookie found for x.com in Chrome.\n' +
-      'This means you are not logged into X in Chrome.\n\n' +
+      'No ct0 CSRF cookie found for x.com in your browser.\n' +
+      'This means you are not logged into X in the detected browser.\n\n' +
       'Fix:\n' +
-      '  1. Open Google Chrome\n' +
+      '  1. Open your browser (Chrome, Helium, etc.)\n' +
       '  2. Go to https://x.com and log in\n' +
       '  3. Re-run this command\n\n' +
       (profileDirectory !== 'Default'
-        ? `Using Chrome profile: "${profileDirectory}"\n`
-        : 'Using the Default Chrome profile. If your X login is in a different profile,\n' +
+        ? `Using browser profile: "${profileDirectory}"\n`
+        : 'Using the Default browser profile. If your X login is in a different profile,\n' +
           'pass --chrome-profile-directory <name> (e.g., "Profile 1").\n')
     );
   }
