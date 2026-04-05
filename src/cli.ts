@@ -22,6 +22,7 @@ import { formatClassificationSummary } from './bookmark-classify.js';
 import { classifyWithLlm, classifyDomainsWithLlm } from './bookmark-classify-llm.js';
 import { renderViz } from './bookmarks-viz.js';
 import { dataDir, ensureDataDir, isFirstRun, twitterBookmarksIndexPath } from './paths.js';
+import { getBrowserUserDataDir, detectBrowser, type BrowserType } from './config.js';
 import fs from 'node:fs';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -59,14 +60,14 @@ const LOGO = `
 export function showWelcome(): void {
   console.log(LOGO);
   console.log(`
-  Save a local copy of your X/Twitter bookmarks. Search them,
-  classify them, and make them available to any AI agent.
-  Your data never leaves your machine.
+   Save a local copy of your X/Twitter bookmarks. Search them,
+   classify them, and make them available to any AI agent.
+   Your data never leaves your machine.
 
-  Get started:
+   Get started:
 
-    1. Open Google Chrome and log into x.com
-    2. Run: ft sync
+     1. Open your browser (Chrome or Helium) and log into x.com
+     2. Run: ft sync
 
   Data will be stored at: ${dataDir()}
 `);
@@ -119,9 +120,9 @@ function timeAgo(dateStr: string): string {
 
 function showSyncWelcome(): void {
   console.log(`
-  Make sure Google Chrome is open and logged into x.com.
-  Your Chrome session is used to authenticate \u2014 no passwords
-  are stored or transmitted.
+   Make sure your browser (Chrome or Helium) is open and logged into x.com.
+   Your browser session is used to authenticate — no passwords
+   are stored or transmitted.
 `);
 }
 
@@ -133,7 +134,7 @@ function requireData(): boolean {
 
   Get started:
 
-    1. Open Google Chrome and log into x.com
+    1. Open your browser (Chrome or Helium) and log into x.com
     2. Run: ft sync
 `);
     process.exitCode = 1;
@@ -233,8 +234,9 @@ export function buildCli() {
     .option('--target-adds <n>', 'Stop after N new bookmarks', (v: string) => Number(v))
     .option('--delay-ms <n>', 'Delay between requests in ms', (v: string) => Number(v), 600)
     .option('--max-minutes <n>', 'Max runtime in minutes', (v: string) => Number(v), 30)
-    .option('--chrome-user-data-dir <path>', 'Chrome user-data directory')
-    .option('--chrome-profile-directory <name>', 'Chrome profile name')
+    .option('--chrome-user-data-dir <path>', 'Browser user-data directory')
+    .option('--chrome-profile-directory <name>', 'Browser profile name')
+    .option('--browser <name>', 'Browser to extract cookies from: chrome or helium')
     .action(async (options) => {
       const firstRun = isFirstRun();
       if (firstRun) showSyncWelcome();
@@ -256,13 +258,18 @@ export function buildCli() {
           }
         } else {
           const startTime = Date.now();
+          const browserFlag = options.browser?.toLowerCase();
+          const browser: BrowserType = browserFlag === 'helium' ? 'helium' : browserFlag === 'chrome' ? 'chrome' : detectBrowser();
+          const browserDataDir = options.chromeUserDataDir
+            ? String(options.chromeUserDataDir)
+            : getBrowserUserDataDir(browser);
           const result = await syncBookmarksGraphQL({
             incremental: !Boolean(options.full),
             maxPages: Number(options.maxPages) || 500,
             targetAdds: typeof options.targetAdds === 'number' && !Number.isNaN(options.targetAdds) ? options.targetAdds : undefined,
             delayMs: Number(options.delayMs) || 600,
             maxMinutes: Number(options.maxMinutes) || 30,
-            chromeUserDataDir: options.chromeUserDataDir ? String(options.chromeUserDataDir) : undefined,
+            chromeUserDataDir: browserDataDir,
             chromeProfileDirectory: options.chromeProfileDirectory ? String(options.chromeProfileDirectory) : undefined,
             onProgress: (status: SyncProgress) => {
               renderProgress(status, startTime);
@@ -295,15 +302,18 @@ export function buildCli() {
         const msg = (err as Error).message;
         if (firstRun && (msg.includes('cookie') || msg.includes('Cookie') || msg.includes('Keychain'))) {
           console.log(`
-  Couldn't connect to your Chrome session.
+  Couldn't connect to your browser session.
 
   To sync your bookmarks:
 
-    1. Open Google Chrome
+    1. Open your browser (Chrome or Helium)
     2. Go to x.com and make sure you're logged in
     3. Run: ft sync
 
-  If you use multiple Chrome profiles, specify which one:
+  To use Helium specifically:
+    ft sync --browser helium
+
+  If you use multiple browser profiles, specify which one:
     ft sync --chrome-profile-directory "Profile 1"
 `);
         } else {
