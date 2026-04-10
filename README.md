@@ -181,6 +181,10 @@ Session sync extracts cookies from your browser's local database. Use `ft sync -
 
 MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
 
+## Credits
+
+This is a fork of [afar1/fieldtheory-cli](https://github.com/afar1/fieldtheory-cli) by Andrew Farah.
+
 ## Star History
 
 <a href="https://www.star-history.com/?repos=afar1%2Ffieldtheory-cli&type=date&legend=top-left">
