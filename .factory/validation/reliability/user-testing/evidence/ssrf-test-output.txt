@@ -1,0 +1,19 @@
+✔ validateMediaUrl rejects http:// URLs (4.172917ms)
+✔ validateMediaUrl rejects ftp:// URLs (0.722875ms)
+✔ validateMediaUrl rejects localhost (0.610041ms)
+✔ validateMediaUrl rejects 127.0.0.1 (0.520375ms)
+✔ validateMediaUrl rejects 10.x private IPs (0.5785ms)
+✔ validateMediaUrl rejects 192.168.x private IPs (0.4665ms)
+✔ validateMediaUrl rejects 172.16-31.x private IPs (0.455917ms)
+✔ validateMediaUrl rejects 169.254.169.254 (AWS metadata) (0.4125ms)
+✔ validateMediaUrl accepts https://pbs.twimg.com URLs (0.480791ms)
+✔ validateMediaUrl accepts https://video.twimg.com URLs (0.578709ms)
+✔ validateMediaUrl accepts arbitrary valid HTTPS URLs (0.370709ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 125.0915
