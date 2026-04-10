@@ -121,7 +121,7 @@ export function sanitizeBookmarkText(text: string): string {
 
 // ── Prompt construction ─────────────────────────────────────────────────
 
-function buildPrompt(bookmarks: UnclassifiedBookmark[]): string {
+export function buildPrompt(bookmarks: UnclassifiedBookmark[]): string {
   const items = bookmarks
     .map((b, i) => {
       const links = b.links ? ` | Links: ${b.links}` : '';
@@ -156,7 +156,7 @@ ${items}`;
 
 // ── Parse and validate response ─────────────────────────────────────────
 
-function parseResponse(raw: string, batchIds: Set<string>): LlmClassification[] {
+export function parseResponse(raw: string, batchIds: Set<string>): LlmClassification[] {
   // Extract JSON array from response (model might add markdown fences or commentary)
   const jsonMatch = raw.match(/\[[\s\S]*\]/);
   if (!jsonMatch) throw new Error('No JSON array found in response');
@@ -265,7 +265,7 @@ interface DomainBookmark {
   categories: string | null;
 }
 
-function buildDomainPrompt(bookmarks: DomainBookmark[]): string {
+export function buildDomainPrompt(bookmarks: DomainBookmark[]): string {
   const items = bookmarks
     .map((b, i) => {
       const cats = b.categories ? ` [${b.categories}]` : '';
