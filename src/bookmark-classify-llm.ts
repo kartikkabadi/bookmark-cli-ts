@@ -88,7 +88,7 @@ export function sanitizeBookmarkText(text: string): string {
     // NOTE: <superuser> must be checked BEFORE generic tag stripping below,
     // because the generic pattern would strip it first, leaving only
     // </superuser> unmatched.
-    .replace(/<superuser>/gi, '[filtered]')
+    .replace(/<\/?superuser>/gi, '[filtered]')
     .replace(/ignore\s+all\s+previous\s+instructions\b/gi, '[filtered]')
     .replace(/ignore\s+all\s+above\s+instructions\b/gi, '[filtered]')
     .replace(/ignore\s+previous\s+instructions\b/gi, '[filtered]')
@@ -112,7 +112,7 @@ export function sanitizeBookmarkText(text: string): string {
     // Prevent corruption of response parsing by neutralizing unbalanced brackets.
     // Collapse obviously suspicious consecutive brace patterns.
     .replace(/\{{3,}/g, '{')
-    .replace(/\}{{3,}/g, '}')
+    .replace(/\}{3,}/g, '}')
     .replace(/\{\{/g, '{')
     .replace(/\}\}/g, '}')
     // ── Truncation ───────────────────────────────────────────────────────
