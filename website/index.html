@@ -201,13 +201,13 @@
         <button class="copy-btn" onclick="copyInstall()">copy</button>
       </div>
 
-      <p class="hero-sub">An open source, free CLI tool for collecting and categorizing your personal X/Twitter bookmarks. Makes your bookmarks locally available to Claude Code, Codex, or any other agent with shell access.</p>
+      <p class="hero-sub">An open source, free CLI tool for collecting and categorizing your personal X/Twitter bookmarks via Helium session sync. Makes your bookmarks locally available to Claude Code, Codex, or any other agent with shell access.</p>
 
       <button class="section-toggle" onclick="toggleSection('commands')">Commands &#x25BE;</button>
       <div class="collapsible" id="commands">
         <div class="commands">
           <div class="cmd-row cmd-section">Sync</div>
-          <div class="cmd-row"><span class="cmd-name">ft sync</span><span class="cmd-desc">Download and sync bookmarks (no API required)</span></div>
+          <div class="cmd-row"><span class="cmd-name">ft sync</span><span class="cmd-desc">Sync via Helium session cookies (no API required)</span></div>
           <div class="cmd-row"><span class="cmd-name">ft sync --rebuild</span><span class="cmd-desc">Full re-crawl of all bookmarks</span></div>
           <div class="cmd-row"><span class="cmd-name">ft sync --gaps</span><span class="cmd-desc">Backfill missing quoted tweets</span></div>
           <div class="cmd-row"><span class="cmd-name">ft sync --classify</span><span class="cmd-desc">Sync then classify new bookmarks</span></div>
@@ -277,7 +277,7 @@
 
   <footer class="footer">
     <div class="footer-inner">
-      <span>designed for mac &middot; requires node.js 20+ &middot; supports Chrome, Firefox, Brave, Arc, and Helium &middot; <span class="badge">MIT</span></span>
+      <span>designed for mac &middot; requires node.js 20+ &middot; Helium-first &middot; also supports Chrome, Firefox, Brave, and Arc &middot; <span class="badge">MIT</span></span>
       <ul class="footer-links">
         <li><a href="https://github.com/afar1/fieldtheory-cli">github</a></li>
         <li><a href="https://www.npmjs.com/package/fieldtheory">npm</a></li>
