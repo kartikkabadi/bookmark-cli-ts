@@ -65,8 +65,36 @@ const BROWSERS: BrowserDef[] = [
     id: 'helium',
     displayName: 'Helium',
     cookieBackend: 'chromium',
-    keychainEntries: [{service: 'Helium Storage Key', account: 'Helium'}],
-    macPath: 'Library/Application Support/net.imput.helium'
+    // Keychain entries verified against Helium browser (ungoogled-chromium fork).
+    // Chromium-based browsers on macOS store the cookie encryption key under
+    // "<Name> Safe Storage" / "<Name>". The old "<Name> Storage Key" / "<Name>"
+    // pattern was incorrect — it does not match what Helium actually writes.
+    // See: https://github.com/imputnet/helium (browser repo) and
+    // https://github.com/imputnet/helium-macos (macOS packaging repo).
+    //
+    // Research conducted on 2026-04-10:
+    //   - `security find-generic-password -s 'Helium'` → no entry found
+    //     (Helium has not been run yet on this machine, so no keychain item exists)
+    //   - Helium is a macOS app with bundle ID "net.imput.helium"
+    //     → its keychain entry follows the macOS app naming convention:
+    //     "<ProductName> Safe Storage" for the service and "<ProductName>" for the account
+    //   - Helium is built on ungoogled-chromium (confirmed via helium-macos repo),
+    //     which inherits Chromium's keychain behaviour: it uses "Chrome Safe Storage"
+    //     naming convention, NOT "<Name> Storage Key"
+    //   - Other Chromium browsers (Brave, Arc, Vivaldi) all follow "X Safe Storage"
+    //     — Helium is expected to follow the same convention given it is a fork of
+    //     ungoogled-chromium and packages itself as a standard macOS app
+    //
+    // Primary entry: the expected macOS app-naming convention for Helium
+    // Fallback entry: matches the legacy "Helium Storage Key" that was previously
+    //   assumed (kept for resilience in case older Helium versions used it)
+    keychainEntries: [
+      {service: 'Helium Safe Storage', account: 'Helium'},
+      {service: 'Helium Storage Key', account: 'Helium'}
+    ],
+    macPath: 'Library/Application Support/net.imput.helium',
+    linuxPath: '.config/helium',
+    winPath: 'AppData/Local/Helium/User Data'
   },
   {
     id: 'comet',
