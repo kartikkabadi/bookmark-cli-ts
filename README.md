@@ -2,7 +2,7 @@
 
 Sync and store locally all of your X/Twitter bookmarks. Search, classify, and make them available to Claude Code, Codex, or any agent with shell access.
 
-Free and open source. Designed for Mac.
+Free and open source. Designed for Mac. Supports Chrome, Firefox, Brave, Arc, and Helium browsers.
 
 ## Install
 
@@ -10,7 +10,7 @@ Free and open source. Designed for Mac.
 npm install -g fieldtheory
 ```
 
-Requires Node.js 20+. Chrome recommended for session sync; OAuth available for all platforms.
+Requires Node.js 20+. Chrome recommended for session sync; Helium and other browsers supported; OAuth available for all platforms.
 
 ## Quick start
 
@@ -27,7 +27,7 @@ ft categories
 ft stats
 ```
 
-On first run, `ft sync` extracts your X session from Chrome and downloads your bookmarks into `~/.ft-bookmarks/`.
+On first run, `ft sync` extracts your X session from your browser and downloads your bookmarks into `~/.ft-bookmarks/`. Use `ft sync --browser helium` to sync with Helium, or `ft sync --browser firefox` for Firefox.
 
 ## Commands
 
@@ -159,7 +159,7 @@ Use `ft classify` for LLM-powered classification that catches what regex misses.
 
 | Feature | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| Session sync (`ft sync`) | Chrome, Brave, Arc, Firefox | Firefox | Firefox |
+| Session sync (`ft sync`) | Chrome, Brave, Arc, Helium, Firefox | Firefox | Firefox |
 | OAuth API sync (`ft sync --api`) | Yes | Yes | Yes |
 | Search, list, classify, viz, wiki | Yes | Yes | Yes |
 
