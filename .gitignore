@@ -25,3 +25,9 @@ Thumbs.db
 
 # Debug
 npm-debug.log*
+
+# Tool-specific directories
+.factory/
+.sisyphus/
+.claude/
+*.tsbuildinfo
