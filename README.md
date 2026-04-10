@@ -2,7 +2,7 @@
 
 Sync and store locally all of your X/Twitter bookmarks. Search, classify, and make them available to Claude Code, Codex, or any agent with shell access.
 
-Free and open source. Designed for Mac. Supports Chrome, Firefox, Brave, Arc, and Helium browsers.
+Free and open source. Helium-first. Designed for Mac with Helium browser. Also supports Chrome, Firefox, Brave, and Arc browsers.
 
 ## Install
 
@@ -10,12 +10,12 @@ Free and open source. Designed for Mac. Supports Chrome, Firefox, Brave, Arc, an
 npm install -g fieldtheory
 ```
 
-Requires Node.js 20+. Chrome recommended for session sync; Helium and other browsers supported; OAuth available for all platforms.
+Requires Node.js 20+. Helium recommended for session sync; other browsers supported; OAuth available for all platforms.
 
 ## Quick start
 
 ```bash
-# 1. Sync your bookmarks (needs Chrome logged into X)
+# 1. Sync your bookmarks (needs Helium logged into X)
 ft sync
 
 # 2. Search them
@@ -161,7 +161,7 @@ Use `ft classify` for LLM-powered classification that catches what regex misses.
 
 | Feature | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| Session sync (`ft sync`) | Chrome, Brave, Arc, Helium, Firefox | Firefox | Firefox |
+| Session sync (`ft sync`) | Helium, Chrome, Brave, Arc, Firefox | Firefox | Firefox |
 | OAuth API sync (`ft sync --api`) | Yes | Yes | Yes |
 | Search, list, classify, viz, wiki | Yes | Yes | Yes |
 
@@ -171,7 +171,7 @@ Session sync extracts cookies from your browser's local database. Use `ft sync -
 
 **Your data stays local.** No telemetry, no analytics, nothing phoned home. The CLI only makes network requests to X's API during sync.
 
-**Chrome session sync** reads cookies from Chrome's local database, uses them for the sync request, and discards them. Cookies are never stored separately.
+**Helium session sync** reads cookies from Helium's local database, uses them for the sync request, and discards them. Cookies are never stored separately.
 
 **OAuth tokens** are stored with `chmod 600` (owner-only). Treat `~/.ft-bookmarks/oauth-token.json` like a password.
 
@@ -186,6 +186,8 @@ MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
 This is a fork of [afar1/fieldtheory-cli](https://github.com/afar1/fieldtheory-cli) by Andrew Farah.
 
 ## Star History
+
+_This chart shows the star history of the upstream [afar1/fieldtheory-cli](https://github.com/afar1/fieldtheory-cli), not this fork._
 
 <a href="https://www.star-history.com/?repos=afar1%2Ffieldtheory-cli&type=date&legend=top-left">
  <picture>
