@@ -1,0 +1,65 @@
+{
+  "groupId": "manual-review",
+  "testedAt": "2026-04-10T12:00:00Z",
+  "isolation": {
+    "workingDirectory": "/Users/user/Documents/Projects/fieldtheory-cli-port",
+    "method": "code-review"
+  },
+  "toolsUsed": ["code-review"],
+  "assertions": [
+    {
+      "id": "VAL-HELIUM-001",
+      "title": "Helium keychain entry name is correct and documented",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Read src/browsers.ts and examine Helium browser definition's keychainEntries",
+          "expected": "keychainEntries contains primary entry following 'X Safe Storage' / 'X' convention with fallback",
+          "observed": "keychainEntries contains [{service: 'Helium Safe Storage', account: 'Helium'}, {service: 'Helium Storage Key', account: 'Helium'}]"
+        },
+        {
+          "action": "Verify primary entry follows Chromium 'X Safe Storage' / 'X' convention",
+          "expected": "Primary entry is 'Helium Safe Storage' / 'Helium'",
+          "observed": "Primary entry is {service: 'Helium Safe Storage', account: 'Helium'}, matching the Chromium convention used by Chrome ('Chrome Safe Storage'/'Chrome'), Brave ('Brave Safe Storage'/'Brave'), and Chromium ('Chromium Safe Storage'/'Chromium')"
+        },
+        {
+          "action": "Verify fallback entry exists for resilience",
+          "expected": "At least one fallback entry with legacy name",
+          "observed": "Fallback entry {service: 'Helium Storage Key', account: 'Helium'} present as second entry"
+        },
+        {
+          "action": "Check code comments for documentation of research and verification process",
+          "expected": "Detailed comments explaining why the entry name was changed from 'Helium Storage Key' to 'Helium Safe Storage'",
+          "observed": "Extensive multi-line comment block documents: (1) Helium is an ungoogled-chromium fork, (2) Chromium browsers use 'X Safe Storage' convention, (3) Previous 'Storage Key' pattern was incorrect, (4) Links to helium and helium-macos repos, (5) Research date 2026-04-10, (6) Explanation of primary vs fallback entries"
+        },
+        {
+          "action": "Verify keychain entries consumed correctly by getMacOSKey() in chrome-cookies.ts",
+          "expected": "getMacOSKey() iterates over keychainEntries candidates in order",
+          "observed": "getMacOSKey() calls getKeychainEntries(browser) and iterates candidates with for...of, trying each until one succeeds, matching the fallback pattern"
+        },
+        {
+          "action": "Verify tests exist for Helium keychain entries",
+          "expected": "Tests assert keychainEntries properties and convention",
+          "observed": "tests/browsers.test.ts includes: 'getBrowser: helium keychain entries follow chromium convention' test asserting entries.length >= 2, services include 'Helium', and all accounts are 'Helium'"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "consoleErrors": "N/A (code review)",
+        "network": "N/A (code review)",
+        "codeRefs": [
+          "src/browsers.ts lines ~63-88 (Helium browser definition with keychainEntries and comments)",
+          "src/browsers.ts lines ~112-127 (getMacOSKey using getKeychainEntries for fallback)",
+          "tests/browsers.test.ts (Helium keychain entries tests)"
+        ],
+        "evidenceFiles": [
+          "helium/manual-review/VAL-HELIUM-001-keychain-entries.txt"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 1 assertion: VAL-HELIUM-001 PASSED. The Helium keychain entry name is correct and documented. Primary entry follows Chromium convention ('Helium Safe Storage' / 'Helium'), fallback entry preserves legacy name ('Helium Storage Key' / 'Helium') for resilience. Code comments thoroughly document the research and verification process, including the rationale for changing from 'Storage Key' to 'Safe Storage'."
+}

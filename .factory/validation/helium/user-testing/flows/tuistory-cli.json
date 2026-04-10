@@ -1,0 +1,54 @@
+{
+  "groupId": "tuistory-cli",
+  "testedAt": "2026-04-10T20:15:00Z",
+  "isolation": {
+    "workingDirectory": "/Users/user/Documents/Projects/fieldtheory-cli-port",
+    "cliCommand": "npx tsx src/cli.ts",
+    "dataDir": "FT_DATA_DIR=/tmp/ft-helium-test-val-009",
+    "noRealBrowserCookies": true
+  },
+  "toolsUsed": ["tuistory"],
+  "assertions": [
+    {
+      "id": "VAL-HELIUM-009",
+      "title": "`ft sync --browser helium` works from CLI",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run `ft sync --help` to verify --browser option exists",
+          "expected": "--browser <name> option listed in sync command help",
+          "observed": "--browser <name> option listed: 'Browser to read session from (chrome, chromium, brave, firefox, ...)'"
+        },
+        {
+          "action": "Run `ft sync --browser helium` with isolated FT_DATA_DIR",
+          "expected": "No 'unknown browser' error; no config resolution error; helium recognized as valid browser",
+          "observed": "CLI outputs 'Browser ids: chrome, chromium, brave, helium, comet, firefox' showing helium is recognized. Shows 'Couldn't connect to your browser session.' which is expected since Helium is not running. NO 'unknown browser' error. NO config resolution error."
+        },
+        {
+          "action": "Verify exit code from `ft sync --browser helium`",
+          "expected": "Exit code 1 (expected - no browser session available), but NOT a crash or config error",
+          "observed": "Exit code 1 - graceful exit due to missing browser session, not a crash or config error"
+        }
+      ],
+      "evidence": {
+        "screenshots": [
+          "helium/tuistory-cli/VAL-HELIUM-009-sync-help.png",
+          "helium/tuistory-cli/VAL-HELIUM-009-sync-browser-helium-output.png"
+        ],
+        "consoleErrors": "none",
+        "network": "N/A — CLI tool, no network requests in this test"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [
+    {
+      "description": "tuistory required rebuilding node-pty native module before it could be used (MODULE_NOT_FOUND error for pty.node on initial install)",
+      "resolved": true,
+      "resolution": "Ran `npx node-gyp rebuild` inside tuistory's node-pty directory to compile the native module",
+      "affectedAssertions": ["VAL-HELIUM-009"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Tested 1 assertion: 1 passed. VAL-HELIUM-009 confirmed: `ft sync --browser helium` is recognized by the CLI, helium appears in the browser IDs list, and no 'unknown browser' or config resolution errors occur. The expected error is only about not being able to connect to the browser session (since Helium is not running), which is the correct behavior."
+}
