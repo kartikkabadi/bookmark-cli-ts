@@ -105,7 +105,7 @@ export interface MediaFetchManifest {
   entries: MediaFetchEntry[];
 }
 
-function sanitizeExtFromContentType(contentType?: string, sourceUrl?: string): string {
+export function sanitizeExtFromContentType(contentType?: string, sourceUrl?: string): string {
   if (contentType?.includes('jpeg')) return '.jpg';
   if (contentType?.includes('png')) return '.png';
   if (contentType?.includes('gif')) return '.gif';
