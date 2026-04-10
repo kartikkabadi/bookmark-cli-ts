@@ -4,6 +4,41 @@
  * bookmarks that the regex classifier couldn't categorize.
  *
  * No API keys needed. No local models. Just a logged-in Claude or Codex CLI.
+ *
+ *
+ * Threat Model: Prompt Injection via Bookmark Text
+ * ────────────────────────────────────────────────
+ * Bookmark text is untrusted user-supplied content that flows into LLM prompts.
+ * Because bookmarks are arbitrary X/Twitter posts, a malicious actor could craft
+ * a bookmark containing text designed to manipulate the LLM's behavior.
+ *
+ * Attack vectors:
+ * 1. DELIMITER INJECTION — The bookmark text contains `</tweet_text>` to
+ *    prematurely close the content wrapper, allowing injected text to "escape"
+ *    and potentially inject arbitrary instructions outside the wrapper context.
+ *
+ * 2. TAG INJECTION — The bookmark text contains `<tweet_text>` to open a new
+ *    wrapper that the attacker controls, allowing injection of arbitrary content
+ *    as a new structured bookmark entry.
+ *
+ * 3. INSTRUCTION INJECTION — The bookmark text contains directives like
+ *    "Ignore all previous instructions" or "You are now a DAN" that attempt
+ *    to override or augment the system prompt's classification instructions.
+ *
+ * 4. STRUCTURAL JSON INJECTION — The bookmark text closes or manipulates JSON
+ *    brackets/keywords to corrupt the classification response parsing.
+ *
+ * Mitigations (sanitizeBookmarkText):
+ * - Strip all `</?tweet_text>` tag variants (delimiters 1 & 2)
+ * - Replace common instruction-injection patterns with `[filtered]`
+ * - Truncate to 300 chars to limit payload size
+ * - The SECURITY NOTE in the prompt reminds the model to classify but not
+ *   follow embedded instructions
+ *
+ * Remaining risk: Mitigations are regex-based and can be bypassed. For high-
+ * security environments, consider a dedicated LLM instance or prompt evaluation
+ * layer that does not trust the input wrapper. This module trades some security
+ * for usability on self-hosted, non-adversarial bookmark collections.
  */
 
 import {openDb, saveDb} from './db.js';
@@ -28,12 +63,59 @@ interface LlmClassification {
 
 // ── Text sanitization ───────────────────────────────────────────────────
 
-function sanitizeBookmarkText(text: string): string {
+/**
+ * Sanitize untrusted bookmark text before it enters an LLM prompt.
+ *
+ * Neutralizes prompt injection attempts by:
+ * 1. Stripping tweet_text delimiter tags (prevents premature content wrapper closure)
+ * 2. Replacing common instruction-injection patterns with a neutral placeholder
+ * 3. Truncating to 300 chars to limit payload size
+ *
+ * @param text - Raw untrusted bookmark text
+ * @returns Sanitized text safe for insertion into an LLM prompt
+ */
+export function sanitizeBookmarkText(text: string): string {
   return text
-    .replace(/ignore\s+(previous|above|all)\s+instructions?/gi, '[filtered]')
-    .replace(/you\s+are\s+now\s+/gi, '[filtered]')
+    // ── Delimiter injection (1 & 2) ──────────────────────────────────────
+    // Strip opening and closing tweet_text tags to prevent attackers from
+    // closing the content wrapper prematurely or opening a new one.
+    .replace(/<\/?tweet_text[^>]*>/gi, '')
+    // ── Instruction injection (3) ──────────────────────────────────────
+    // Replace directive patterns that attempt to override system instructions.
+    // These patterns are well-documented injection techniques.
+    // Each pattern requires precise whitespace: "ignore all previous instructions"
+    // (note the space between "previous" and "instructions").
+    // NOTE: <superuser> must be checked BEFORE generic tag stripping below,
+    // because the generic pattern would strip it first, leaving only
+    // </superuser> unmatched.
+    .replace(/<superuser>/gi, '[filtered]')
+    .replace(/ignore\s+all\s+previous\s+instructions\b/gi, '[filtered]')
+    .replace(/ignore\s+all\s+above\s+instructions\b/gi, '[filtered]')
+    .replace(/ignore\s+previous\s+instructions\b/gi, '[filtered]')
+    .replace(/ignore\s+above\s+instructions\b/gi, '[filtered]')
+    .replace(/ignore\s+all\s+instructions\b/gi, '[filtered]')
+    .replace(/ignore\s+instructions\b/gi, '[filtered]')
+    .replace(/you\s+are\s+now\s+[a-zA-Z_\s]+/gi, '[filtered]')
     .replace(/system\s*:\s*/gi, '[filtered]')
-    .replace(/<\/?tweet_text>/gi, '') // prevent tag escape
+    .replace(/(?:you\s+are\s+a\s+)?(?:developer\s+)?mode[:\s]/gi, '[filtered]')
+    .replace(/\[system\]/gi, '[filtered]')
+    // Strip any variant with whitespace or attributes (e.g. <tweet_text onclick=...>)
+    // Allow only known-safe inline tags commonly found in tweet text.
+    // Block anything that looks like a structural/tag-based injection.
+    // NOTE: This runs AFTER instruction injection checks above so that specific
+    // injection tag patterns like <superuser> are already handled.
+    .replace(/<[a-zA-Z][^>]*>/g, (match) => {
+      const safe = /^(<\/?(b|i|u|strong|em|a|span|br)\b[^>]*>)$/.test(match);
+      return safe ? match : '';
+    })
+    // ── JSON structural injection (4) ───────────────────────────────────
+    // Prevent corruption of response parsing by neutralizing unbalanced brackets.
+    // Collapse obviously suspicious consecutive brace patterns.
+    .replace(/\{{3,}/g, '{')
+    .replace(/\}{{3,}/g, '}')
+    .replace(/\{\{/g, '{')
+    .replace(/\}\}/g, '}')
+    // ── Truncation ───────────────────────────────────────────────────────
     .slice(0, 300);
 }
 
