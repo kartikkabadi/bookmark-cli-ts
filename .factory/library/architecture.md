@@ -23,15 +23,16 @@ Single-process CLI application. No server, no daemon. User invokes `ft <command>
 │ Sync     │ Data     │ Classify     │ Knowledge Base     │
 │ Layer    │ Layer    │ Layer        │ Layer              │
 │          │          │              │                    │
-│ graphql- │ bookmarks│ bookmark-    │ md.ts              │
-│ bookmarks│ -db.ts   │ classify.ts  │ md-ask.ts          │
-│ .ts      │ db.ts     │ bookmark-    │ md-export.ts       │
-│ bookmarks│ fs.ts    │ classify-    │ md-lint.ts         │
-│ .ts      │ paths.ts  │ llm.ts      │ md-prompts.ts      │
-│ xauth.ts │          │              │                    │
-│ chrome-  │          │ engine.ts    │                    │
-│ cookies  │          │ preferences  │                    │
-│ .ts      │          │ .ts          │                    │
+│ sync-    │ bookmarks│ bookmark-    │ md.ts              │
+│ command  │ -db.ts   │ classify.ts  │ md-ask.ts          │
+│ .ts +    │ db.ts     │ bookmark-    │ md-export.ts       │
+│ graphql- │ fs.ts    │ classify-    │ md-lint.ts         │
+│ bookmarks│ paths.ts  │ llm.ts      │ md-prompts.ts      │
+│ .ts      │          │              │                    │
+│ xauth.ts │          │ engine.ts    │                    │
+│ chrome-  │          │ preferences  │                    │
+│ cookies  │          │ .ts          │                    │
+│ .ts      │          │              │                    │
 │ firefox- │          │              │                    │
 │ cookies  │          │              │                    │
 │ .ts      │          │              │                    │
@@ -87,11 +88,12 @@ Helium is a Chromium-based browser. Cookie extraction uses the same chromium-bac
 
 | Module | Lines | Complexity |
 |--------|-------|------------|
-| cli.ts | 1,211 | High (22+ commands, sync mega-handler) |
-| bookmarks-db.ts | 934 | High (FTS5 schema, 20+ query functions) |
-| graphql-bookmarks.ts | ~800 | High (sync loop, gap-fill, auto-continue) |
+| cli.ts | 1,017 | High (22+ commands, progress UI) |
+| sync-command.ts | 343 | High (sync handler, gap-fill, classify) |
+| bookmarks-db.ts | 993 | High (FTS5 schema, search, validateDate, sanitizeFtsQuery) |
+| graphql-bookmarks.ts | ~800 | High (sync loop, gap-fill state persistence, auto-continue) |
 | bookmarks-viz.ts | ~800 | Medium (terminal UI rendering) |
 | chrome-cookies.ts | ~550 | High (3 OS paths, decryption) |
-| bookmark-classify-llm.ts | ~300 | Medium (LLM integration) |
-| bookmark-media.ts | ~220 | Medium (batch download) |
+| bookmark-classify-llm.ts | 376 | Medium (LLM integration, prompt injection sanitization) |
+| bookmark-media.ts | 305 | Medium (batch download, SSRF URL validation) |
 | bookmark-classify.ts | ~280 | Low (regex patterns) |

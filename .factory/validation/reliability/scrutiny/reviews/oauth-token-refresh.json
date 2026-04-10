@@ -1,0 +1,34 @@
+{
+  "featureId": "oauth-token-refresh",
+  "reviewedAt": "2026-04-11T00:00:00Z",
+  "commitId": "bbc5998",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation adds refreshOAuthToken() in src/xauth.ts and integrates it into syncTwitterBookmarks() via a withTokenRefresh() helper and inline 401 handling in the pagination loop. The feature correctly: (1) uses stored refresh_token to get new access/refresh pair via POST to the token endpoint, (2) saves new tokens with mode 0600, (3) automatically retries on 401, (4) falls back with actionable error when refresh token is also expired. Two new unit tests cover the happy path and expired refresh token scenarios. All 238 tests pass.",
+    "issues": [
+      {
+        "file": "src/xauth.ts",
+        "line": 81,
+        "severity": "non_blocking",
+        "description": "refreshOAuthToken() requires cfg.callbackUrl but the OAuth refresh_token grant type does not use a redirect_uri. The check `if (!cfg.callbackUrl)` will throw unnecessarily if X_CALLBACK_URL is not set, even though it's not needed for token refresh. However, loadXApiConfig() already defaults callbackUrl to 'http://127.0.0.1:3000/callback', so in practice this check will almost never fail. The same pattern exists in exchangeCodeForToken(), so this is consistent with the existing code style — just technically unnecessary for the refresh flow."
+      },
+      {
+        "file": "src/xauth.ts",
+        "line": 99,
+        "severity": "non_blocking",
+        "description": "JSON.parse(text) is called before checking response.ok, meaning a non-JSON response body would throw an unhandled SyntaxError instead of a more descriptive error. This same pattern exists in exchangeCodeForToken(), so it's consistent with existing code, but ideally should be wrapped in try/catch for robustness. The X/Twitter API does return JSON for errors, so this is unlikely to be a practical issue."
+      },
+      {
+        "file": "src/bookmarks.ts",
+        "line": 158,
+        "severity": "non_blocking",
+        "description": "The 401 handling in the bookmark pagination loop (lines ~230-260) duplicates the token refresh logic from withTokenRefresh(). If a 401 occurs mid-pagination, the inline handler retries the same page, which is correct. However, the duplicated refresh+save+retry pattern could be a maintenance burden if the refresh logic changes. This is acceptable given the two contexts have different retry semantics (withTokenRefresh throws on failure, while the pagination loop needs to continue or break)."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Feature PASS. The OAuth token refresh implementation is solid and covers all four requirements from the feature description: (1) refreshOAuthToken() correctly POSTs to the token endpoint with grant_type=refresh_token, falls back to original refresh_token if none returned, (2) saves with mode 0600 via saveTwitterOAuthToken(), (3) withTokenRefresh() helper auto-retries on 401 for fetchCurrentUserId, and inline 401 handling in the pagination loop retries on 401, (4) expired refresh token surfaces 'OAuth session expired. Re-run: ft auth'. Minor non-blocking observations: callbackUrl check is technically unnecessary for the refresh flow but consistent with existing patterns, and the 401 handling in the pagination loop duplicates some refresh logic from withTokenRefresh for different retry semantics. Tests cover both happy path and expired token scenarios."
+}

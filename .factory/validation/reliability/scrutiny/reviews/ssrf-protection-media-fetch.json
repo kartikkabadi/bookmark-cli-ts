@@ -1,0 +1,57 @@
+{
+  "featureId": "ssrf-protection-media-fetch",
+  "reviewedAt": "2026-04-11T00:00:00Z",
+  "commitId": "1b21a81",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The SSRF protection implementation adds a `validateMediaUrl()` function to `src/bookmark-media.ts` that validates URLs before fetching media. It correctly rejects non-HTTPS schemes, localhost, loopback addresses (127.0.0.1, ::1, 0.0.0.0), and private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16). Rejected URLs are logged in manifest entries with status 'failed' and a descriptive reason. 11 unit tests cover all specified rejection patterns and legitimate URL acceptance, and all pass. The implementation is well-integrated into `fetchBookmarkMediaBatch()` with the validation check placed before the `fetch()` call. A few non-blocking issues noted below.",
+    "issues": [
+      {
+        "file": "src/bookmark-media.ts",
+        "line": 40,
+        "severity": "non_blocking",
+        "description": "Redundant logic in `isPrivateIp()`: the function checks `PRIVATE_IP_BLOCKS.some((b) => ipMatchesBlock(hostname, b.ip, b.mask))` on line 40, then checks the same condition again inside an `if (/^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/)` block on line 43-45. The outer `.some()` already matches numeric IPs, making the inner block entirely redundant. The regex guard would only be meaningful if the inner block did something different (like DNS resolution), but it repeats the identical check."
+      },
+      {
+        "file": "src/bookmark-media.ts",
+        "line": 34,
+        "severity": "non_blocking",
+        "description": "`ipToNumber()` does not validate octet values (0-255). `Number(octet)` accepts values > 255, which means `ipToNumber('999.999.999.999')` would produce a bogus number. In practice, the `URL` constructor normalizes such inputs (e.g., `https://999.999.999.999/image.jpg` becomes hostname `999.999.999.999` which doesn't match any private block and would pass validation — however this hostname would simply fail DNS resolution). Minimal real risk but worth noting."
+      },
+      {
+        "file": "src/bookmark-media.ts",
+        "line": 56,
+        "severity": "non_blocking",
+        "description": "IPv6 private ranges beyond ::1 and 0.0.0.0 are not blocked. For example, `https://[fc00::1]/image.jpg` (IPv6 unique local) and `https://[fe80::1]/image.jpg` (IPv6 link-local) pass validation. The feature spec only lists IPv4 ranges, so this is arguably in scope, but it's a gap for thorough SSRF protection. Verified that the URL parser accepts bracketed IPv6 literals and validates them as hostnames."
+      },
+      {
+        "file": "src/bookmark-media.ts",
+        "line": 56,
+        "severity": "non_blocking",
+        "description": "No DNS resolution check — the function only validates the hostname string, not the resolved IP address. A domain like `attacker.com` that resolves to `127.0.0.1` via DNS would pass validation. The feature description says 'the hostname does not resolve to a private IP', which implies DNS resolution, but the implementation performs only syntactic validation. This is a reasonable first-pass defense (blocking direct IP attacks) but does not prevent DNS rebinding attacks. Adding DNS resolution would require making the function async and adding platform-specific DNS dependencies, which may not be desirable for this CLI tool."
+      },
+      {
+        "file": "tests/bookmark-media.test.ts",
+        "line": 1,
+        "severity": "non_blocking",
+        "description": "Tests use `withIsolatedDataDir()` wrapper unnecessarily. `validateMediaUrl()` is a pure function with no filesystem or data directory dependency — it doesn't access paths, config, or databases. The `withIsolatedDataDir()` wrapper adds overhead without benefit. While harmless, it adds test noise and could mislead future readers into thinking the function has side effects."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The `validateMediaUrl` function and supporting types/helpers (`MediaUrlValidation`, `PRIVATE_IP_BLOCKS`, `ipToNumber`, `ipMatchesBlock`, `isPrivateIp`) are all exported or defined at module top-level in `bookmark-media.ts`. The helper functions (`ipToNumber`, `ipMatchesBlock`, `isPrivateIp`) are not exported but are also not unit-tested directly — they're tested indirectly through `validateMediaUrl`. This is acceptable but worth noting that if these utilities grow, they could benefit from direct unit tests.",
+      "evidence": "src/bookmark-media.ts lines 14-48: functions defined as module-level private, tested only through validateMediaUrl's public interface"
+    },
+    {
+      "area": "knowledge",
+      "observation": "The project has no documented SSRF protection pattern or security utilities module. The SSRF validation lives in `bookmark-media.ts` which is a media-specific module. If other parts of the codebase need URL validation in the future (e.g., the sync module), this logic would need to be extracted into a shared security utility module. AGENTS.md and architecture.md don't mention security patterns or shared validation utilities.",
+      "evidence": "src/bookmark-media.ts contains the only SSRF validation in the codebase. .factory/library/architecture.md has no mention of URL validation or security utilities."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "The SSRF protection implementation fully covers the feature specification: non-HTTPS schemes are rejected, private IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16) are blocked, localhost is rejected, and rejected URLs are logged in manifest entries with clear reason messages. Legitimate Twitter URLs (pbs.twimg.com, video.twimg.com) pass validation. 11 unit tests cover all specified patterns and pass. The implementation has minor non-blocking issues: redundant logic in `isPrivateIp()`, no DNS resolution check (syntactic-only validation, which means DNS rebinding attacks are not prevented), no IPv6 private range blocking beyond ::1, and tests unnecessarily wrap pure-function calls in `withIsolatedDataDir()`. These are all non-blocking for the stated feature requirements. The status is PASS."
+}

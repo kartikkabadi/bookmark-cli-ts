@@ -1,0 +1,39 @@
+{
+  "featureId": "date-filter-validation",
+  "reviewedAt": "2026-04-11T00:15:00Z",
+  "commitId": "e6947a7",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation correctly adds date format validation for --after and --before options in both the search and list CLI commands. A validateDate() function was added to bookmarks-db.ts that enforces strict YYYY-MM-DD format via regex, validates month range (1-12), and validates day range per month (including leap year handling). It throws descriptive Error messages that include the flag name and suggest YYYY-MM-DD format. The safe() wrapper in cli.ts catches these errors and sets process.exitCode=1, satisfying the exit code requirement. 13 new tests cover unit validation and integration with search/list commands. All 241 tests pass, type check and build succeed.",
+    "issues": [
+      {
+        "file": "src/bookmarks-db.ts",
+        "line": 17,
+        "severity": "non_blocking",
+        "description": "validateDate() is placed in bookmarks-db.ts (the database module) rather than a CLI-specific validation module. Since it's a pure input validation function unrelated to database operations, it could logically belong in a separate validation utility module. However, this is a minor architectural concern — the function is small, well-documented, and correctly exported. The current placement is pragmatic since bookmarks-db.ts is where the after/before parameters are consumed."
+      },
+      {
+        "file": "tests/date-validation.test.ts",
+        "line": 105,
+        "severity": "non_blocking",
+        "description": "The unit test for error message format verifies that 'YYYY-MM-DD' appears in the message but does not verify that the flag name (e.g., '--after') appears in the message. The feature requirement explicitly says 'Error message specifies the flag name.' The implementation does include the flag name (verified by manual CLI testing in the handoff), but a test asserting on this would strengthen coverage. This is non-blocking because manual verification confirmed the correct behavior."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The safe() error wrapper in cli.ts (lines 338-353) catches thrown Errors, prefixes with 'Error: <message>', and sets process.exitCode=1. This is the standard error handling pattern for CLI command actions. This pattern isn't explicitly documented in AGENTS.md or architecture.md, but workers implementing new CLI commands need to understand it. The skill file mentions 'Error handling: use safe() wrapper pattern in CLI' but doesn't detail how it maps thrown Errors to exit codes.",
+      "evidence": "src/cli.ts:338-353 shows safe() wrapper that catches errors and sets process.exitCode=1. The worker skill SKILL.md mentions 'Error handling: throw descriptive errors in modules, let safe() wrapper handle CLI output' but doesn't specify that thrown Errors result in exit code 1."
+    },
+    {
+      "area": "conventions",
+      "observation": "AGENTS.md in the mission directory says 'Semicolons at end of statements (enforced by Prettier)' but the project's root CLAUDE.md says 'No semicolons (follow existing code style)'. The existing codebase consistently omits semicolons. The mission AGENTS.md contradicts the root project convention. The worker correctly followed the existing codebase convention (no semicolons).",
+      "evidence": "Root CLAUDE.md says 'No semicolons (follow existing code style)'. Mission AGENTS.md says 'Semicolons at end of statements (enforced by Prettier)'. The validateDate() implementation correctly uses no semicolons, matching the codebase convention."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS: The date-filter-validation feature is correctly implemented. ValidateDate() enforces YYYY-MM-DD format with regex, validates month/day ranges including leap years, and produces clear error messages with flag names. Both search and list commands call validation before database operations. Error messages flow through the safe() wrapper to set exit code 1. 13 new tests pass. Two minor non-blocking issues noted: (1) validateDate placement in bookmarks-db.ts is pragmatic but not architecturally ideal, and (2) no test asserting flag name inclusion in error messages. Both are acceptable for this feature."
+}

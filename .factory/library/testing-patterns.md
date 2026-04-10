@@ -71,6 +71,34 @@ test('browserUserDataDir on Linux', async (t) => {
 
 Alternative: use `assert.skip('macOS-only')` at the start so the skip is visible in test reports.
 
+## Node 24+ Module Mocking Limitation
+
+`test.mock.module()` (Node's built-in module mocking API) does NOT work reliably in Node 24+. If you need to mock `fetch` or other globals, use the `globalThis.fetch` override pattern instead:
+
+```ts
+test('my test', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({}))
+  try {
+    // ... test code ...
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+```
+
+Alternatively, use `t.mock.method()` for method-level mocking on objects.
+
+## writeJson Cannot Produce Corrupted JSON
+
+The `writeJson()` function in `fs.ts` always serializes via `JSON.stringify()`, so it produces valid JSON output. If a test needs to write corrupted/malformed JSON (e.g., to test error handling), use `fs.writeFileSync()` directly instead:
+
+```ts
+// writeJson('not valid json {{{', path) would produce JSON string "\"not valid json {{{\"" — valid JSON!
+// Use fs.writeFileSync for truly corrupted content:
+fs.writeFileSync(path, '{"processedIds": [')
+```
+
 ## Environment Variable Cleanup in Tests
 
 Config tests manually manage env var cleanup (`delete process.env.XYZ` after each test). This is fragile — a throw before cleanup pollutes subsequent tests. Use save/restore in try/finally:

@@ -1,0 +1,103 @@
+{
+  "milestone": "reliability",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm test", "exitCode": 0, "detail": "241 tests pass, 0 fail" },
+    "typecheck": { "passed": true, "command": "npx tsc --noEmit", "exitCode": 0, "detail": "Clean, no errors" },
+    "lint": { "passed": true, "command": "npm run lint", "exitCode": 0, "detail": "0 errors, 43 warnings" }
+  },
+  "reviewsSummary": {
+    "total": 7,
+    "passed": 6,
+    "failed": 1,
+    "failedFeatures": ["llm-prompt-injection-hardening"]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "llm-prompt-injection-hardening",
+      "severity": "blocking",
+      "description": "Closing </superuser> tag is not filtered. Only <superuser> is replaced with [filtered], but </superuser> leaks through because the generic tag filter regex /<[a-zA-Z][^>]*>/g doesn't match tags starting with </. Result: sanitizeBookmarkText('<superuser>admin</superuser>') produces '[filtered]admin</superuser>'. The code comment on line 89-90 explicitly acknowledges this gap but didn't fix it.",
+      "file": "src/bookmark-classify-llm.ts",
+      "line": 91,
+      "suggestedFix": "Add .replace(/<\\/superuser>/gi, '[filtered]') after the opening tag replace, or change the existing pattern to /<\\/?superuser>/gi."
+    },
+    {
+      "featureId": "llm-prompt-injection-hardening",
+      "severity": "blocking",
+      "description": "The regex /\\}{{3,}/g for collapsing 3+ consecutive closing braces is incorrect. It matches a literal '}' followed by 3+ '{' characters then '}', NOT 3+ consecutive '}' characters. The correct regex should be /\\}{3,}/g. Current behavior: sanitizeBookmarkText('}}}}}}')" produces '}}}' instead of '}'. Tests don't catch this because they only test double braces.",
+      "file": "src/bookmark-classify-llm.ts",
+      "line": 115,
+      "suggestedFix": "Change .replace(/\\}{{3,}/g, '}') to .replace(/\\}{3,}/g, '}')."
+    }
+  ],
+  "nonBlockingIssues": [
+    {
+      "featureId": "fts-query-sanitization",
+      "description": "sanitizeFtsQuery() is purely a validator (returns input unchanged if valid), but the name 'sanitize' implies transformation. Minor naming concern.",
+      "suggestedFix": "Consider renaming to validateFtsQuery() for accuracy, or documenting that it validates-and-passes-through."
+    },
+    {
+      "featureId": "date-filter-validation",
+      "description": "validateDate() is placed in bookmarks-db.ts (database module) rather than a dedicated CLI validation module. Architecturally misplaced but pragmatically fine.",
+      "suggestedFix": "Could move to a validation utility module if more CLI-level validations are added."
+    },
+    {
+      "featureId": "ssrf-protection-media-fetch",
+      "description": "IPv6 private ranges (fc00::/7, fe80::/10) are not blocked. No DNS resolution check — syntactic-only validation doesn't prevent DNS rebinding.",
+      "suggestedFix": "Add IPv6 private range blocking if needed. DNS resolution would require async, not desirable for this CLI tool."
+    },
+    {
+      "featureId": "extract-sync-command",
+      "description": "Dead code remains in cli.ts: FRIENDLY_STOP_REASONS constant, friendlyStopReason(), and warnIfEmpty() were moved to sync-command.ts but originals not removed from cli.ts. Unused import of rebuildIndex in cli.ts.",
+      "suggestedFix": "Remove the duplicated dead code from cli.ts and the unused rebuildIndex import."
+    },
+    {
+      "featureId": "gap-fill-state-persistence",
+      "description": "GapfillState.processedIds typed as Set<string> but serialized/deserialized as Array. totalIds field is always empty (dead code). State file not cleaned up after successful full run.",
+      "suggestedFix": "Change type to string[] for accuracy. Remove dead totalIds field. Consider state cleanup after completion."
+    },
+    {
+      "featureId": "oauth-token-refresh",
+      "description": "Unnecessary callbackUrl check in refreshOAuthToken() (not needed for refresh_token grant type, but consistent with existing pattern). Minor duplicated refresh logic between withTokenRefresh() and inline pagination handler.",
+      "suggestedFix": "Acceptable as-is given consistency with existing code patterns."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library/architecture.md",
+      "description": "Updated Component Map to include sync-command.ts module. Updated Module Size Reference table with correct line counts (cli.ts: 1017→was 1211, bookmarks-db.ts: 993→was 934, bookmark-classify-llm.ts: 376→was ~300, bookmark-media.ts: 305→was ~220). Added sync-command.ts (343 lines). Added FTS5 sanitize/validate and SSRF URL validation to module descriptions. Added gap-fill state persistence note to graphql-bookmarks.",
+      "sourceFeature": "extract-sync-command, fts-query-sanitization, ssrf-protection-media-fetch, llm-prompt-injection-hardening, gap-fill-state-persistence"
+    },
+    {
+      "target": "library/testing-patterns.md",
+      "description": "Added section on Node 24+ module mocking limitation (test.mock.module doesn't work, use globalThis.fetch override pattern). Added section on writeJson inability to produce corrupted JSON (use fs.writeFileSync directly for corrupted test fixtures).",
+      "sourceFeature": "gap-fill-state-persistence"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Remove the line 'Semicolons at end of statements (enforced by Prettier)' from AGENTS.md. The project's root CLAUDE.md says 'No semicolons (follow existing code style)' and the entire codebase consistently uses no semicolons. Multiple workers have been confused by this contradiction, with two reviews noting it. The codebase convention should take precedence.",
+      "evidence": "Date-filter-validation review and llm-prompt-injection-hardening review both flagged this. Root CLAUDE.md says no semicolons, mission AGENTS.md says semicolons enforced by Prettier, codebase has no semicolons.",
+      "isSystemic": true
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add src/sync-command.ts to the key files table in AGENTS.md: 'sync-command.ts | Sync command handler — gap-fill, classify, progress UI'. Also update cli.ts description to remove mention of inline sync handler since it has been extracted.",
+      "evidence": "Extract-sync-command review noted that AGENTS.md key files table doesn't include sync-command.ts and still describes cli.ts as containing the sync handler inline.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "SSRF validation should be extracted into a shared security utility module for reuse across the codebase.",
+      "reason": "Speculative — no current need for shared SSRF validation outside bookmark-media.ts. The single use doesn't justify extraction yet. If another module needs URL validation, it can be extracted then."
+    },
+    {
+      "observation": "sanitizeBookmarkText() is now exported but AGENTS.md doesn't document it as a public API.",
+      "reason": "Already documented in the architecture table entry for bookmark-classify-llm.ts. No separate API documentation is needed for internal functions exported for testability."
+    }
+  ],
+  "previousRound": null
+}

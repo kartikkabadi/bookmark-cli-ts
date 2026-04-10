@@ -1,0 +1,56 @@
+{
+  "featureId": "gap-fill-state-persistence",
+  "reviewedAt": "2026-04-11T00:00:00.000Z",
+  "commitId": "41fd5e2",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The implementation adds persistent state tracking for gap-fill operations in `src/graphql-bookmarks.ts`. A `twitterGapfillStatePath()` is added to `paths.ts`, a `GapfillState` type is added to `types.ts`, and `syncGaps()` is modified to load/save state, skip already-processed IDs on resume, and handle corrupted state files gracefully. Three new tests cover: state file creation with processed IDs, resumption skipping already-processed IDs, and corrupted state file handling. All 241 tests pass, lint/typecheck/build clean.",
+    "issues": [
+      {
+        "file": "src/types.ts",
+        "line": 107,
+        "severity": "non_blocking",
+        "description": "The `GapfillState` interface declares `processedIds: Set<string>`, but JSON serialization converts Sets to empty objects `{}`. The code correctly uses `Array.from(processedIds)` when writing (`writeJson(statePath, { processedIds: Array.from(processedIds), totalIds: [] })`) and `new Set(state.processedIds)` when reading (since JSON.parse produces an Array). However, the declared type `Set<string>` is misleading — at runtime, after JSON deserialization, `state.processedIds` is an Array, not a Set. This type mismatch is harmless due to the `new Set()` conversion, but could confuse future maintainers who expect `state.processedIds` to be a Set. Consider declaring it as `processedIds: string[]` in the interface for accuracy."
+      },
+      {
+        "file": "src/types.ts",
+        "line": 109,
+        "severity": "non_blocking",
+        "description": "The `totalIds: string[]` field is documented as 'Snapshot of the IDs remaining at the start of the run, for progress reporting' but is always written as an empty array `[]` and never read. This is dead code — the field serves no purpose in the current implementation and should either be removed or populated with meaningful data."
+      },
+      {
+        "file": "src/graphql-bookmarks.ts",
+        "line": 893,
+        "severity": "non_blocking",
+        "description": "The gap-fill state file is never cleaned up after a successful full run. After `syncGaps` completes all IDs, the state file remains on disk. On the next `ft sync --gaps`, stale processed IDs are loaded and filtered, which works correctly but produces a confusing progress report (e.g., showing 'Resuming from 150' even though all 150 IDs are already complete). Consider deleting or clearing the state file after a successful complete run to avoid stale-state confusion in subsequent runs."
+      },
+      {
+        "file": "src/graphql-bookmarks.ts",
+        "line": 797,
+        "severity": "non_blocking",
+        "description": "The resumption progress report uses `resumedFrom = processedIds.size`, which counts ALL previously-processed IDs, including ones that may not be in the current gap set. This means if a previous run processed IDs [A, B, C] and the current run's gap set is [D, E], the progress would report 'Resuming from 3/5' — but only 2 IDs remain. The `total` becomes `3 + 2 = 5`, which could confuse users. A more accurate approach would be to only count previously-processed IDs that are also in the current gap set."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The worker discovered that `test.mock.module` (Node's built-in module mocking API) doesn't work in their Node version (v24.14). The transcript shows multiple iterations trying to use `test.mock.module` before switching to a manual mocking approach (overriding `globalThis.fetch`). This could have been avoided if the testing-patterns.md library doc noted this limitation and recommended the manual mock approach for Node 24+.",
+      "evidence": "Transcript shows worker trying `test.mock.module` and getting errors, then rewriting tests to use `globalThis.fetch` override pattern instead. The testing-patterns.md doc only mentions `t.mock.method()` for mocking but doesn't cover module-level mocking limitations or the recommended pattern for mocking `fetch` in syncGaps."
+    },
+    {
+      "area": "conventions",
+      "observation": "The codebase uses atomic file writes (tmp+rename pattern from `fs.ts`) for data files, and the gap-fill state correctly uses `writeJson()` which follows this pattern. However, the corrupted state test bypasses `writeJson()` and uses `fs.writeFileSync()` directly to write malformed JSON. While this is acceptable for a test, it's worth noting as a test convention inconsistency.",
+      "evidence": "tests/graphql-bookmarks.test.ts:761 — `fs.writeFileSync(statePath, '{"processedIds": [')` bypasses the atomic write pattern used by `writeJson()`"
+    },
+    {
+      "area": "knowledge",
+      "observation": "The `writeJson` function in `fs.ts` uses `JSON.stringify(value, null, 2)` which produces 'not valid json {{{' as-is (since it's a string, not an object). The worker initially tried `writeJson(statePath, 'not valid json {{{')` but this actually writes the JSON string `\"not valid json {{{\"` (a valid JSON string value), not corrupted JSON. The worker pivoted to using `fs.writeFileSync` instead, which correctly creates truly corrupted JSON. The testing-patterns.md could document that `writeJson` cannot produce corrupted JSON since it always serializes properly.",
+      "evidence": "Transcript shows worker debugging this issue and discovering that `writeJson` with a string argument produces valid JSON (a string value), not corrupted JSON. Worker switched to `fs.writeFileSync` for the test."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "The gap-fill state persistence feature is well-implemented and covers all the requirements from the feature description. The implementation adds a path helper, a type, modifies syncGaps() to load/save/resume state, handles corrupted state files gracefully, and includes 3 unit tests. There are 4 non-blocking issues: (1) the GapfillState type declares `processedIds` as `Set<string>` but it's serialized/deserialized as an Array, creating a runtime-vs-declaration mismatch; (2) the `totalIds` field is always empty and never used — dead code; (3) the state file is never cleaned up after a successful full run; (4) the resumption progress counter includes stale IDs not relevant to the current run. None of these are blocking — the code works correctly at runtime. The feature passes review."
+}
