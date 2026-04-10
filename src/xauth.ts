@@ -76,6 +76,49 @@ async function exchangeCodeForToken(code: string, verifier: string): Promise<XOA
   };
 }
 
+export async function refreshOAuthToken(refreshToken: string): Promise<XOAuthTokenSet> {
+  const cfg = loadXApiConfig();
+  if (!cfg.callbackUrl) {
+    throw new Error('Missing X_CALLBACK_URL in .env.local');
+  }
+
+  const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64');
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: cfg.clientId
+  });
+
+  const response = await fetch('https://api.x.com/2/oauth2/token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basic}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body
+  });
+
+  const text = await response.text();
+  const parsed = JSON.parse(text);
+
+  // Twitter returns 401 when the refresh token itself has expired
+  if (!response.ok) {
+    if (parsed.error === 'invalid_request' || response.status === 401) {
+      throw new Error('OAuth session expired. Re-run: ft auth');
+    }
+    throw new Error(`Token refresh failed (HTTP ${response.status}). Check your X API credentials.`);
+  }
+
+  return {
+    access_token: parsed.access_token,
+    refresh_token: parsed.refresh_token ?? refreshToken,
+    expires_in: parsed.expires_in,
+    scope: parsed.scope,
+    token_type: parsed.token_type,
+    obtained_at: new Date().toISOString()
+  };
+}
+
 export async function saveTwitterOAuthToken(token: XOAuthTokenSet): Promise<string> {
   ensureDataDir();
   const tokenPath = twitterOauthTokenPath();

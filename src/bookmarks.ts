@@ -2,7 +2,7 @@ import {ensureDir, pathExists, readJson, readJsonLines, writeJson, writeJsonLine
 import {ensureDataDir, twitterBackfillStatePath, twitterBookmarksCachePath, twitterBookmarksMetaPath} from './paths.js';
 import type {BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord} from './types.js';
 import {loadXApiConfig} from './config.js';
-import {loadTwitterOAuthToken} from './xauth.js';
+import {loadTwitterOAuthToken, refreshOAuthToken, saveTwitterOAuthToken} from './xauth.js';
 
 export interface BookmarkSyncResult {
   mode: 'full' | 'incremental';
@@ -73,7 +73,7 @@ async function fetchJsonWithUserToken(url: string, accessToken: string): Promise
   };
 }
 
-async function fetchCurrentUserId(accessToken: string): Promise<{ok: boolean; id?: string; status: number; detail: string}> {
+async function fetchCurrentUserId(accessToken: string): Promise<{ok: boolean; status: number; detail: string; data?: {id: string}}> {
   const result = await fetchJsonWithUserToken('https://api.x.com/2/users/me', accessToken);
   if (!result.ok) {
     return {
@@ -94,9 +94,9 @@ async function fetchCurrentUserId(accessToken: string): Promise<{ok: boolean; id
 
   return {
     ok: true,
-    id: String(id),
     status: result.status,
-    detail: 'Resolved current user id'
+    detail: 'Resolved current user id',
+    data: {id: String(id)}
   };
 }
 
@@ -122,6 +122,36 @@ export function normalizeBookmarkPage(page: BookmarkApiResponse, syncedAt: strin
       links: (tweet.entities?.urls ?? []).map((u) => u.expanded_url ?? u.url ?? '').filter(Boolean)
     });
   });
+}
+
+async function withTokenRefresh<T>(
+  label: string,
+  fn: (accessToken: string) => Promise<{ok: boolean; status: number; detail: string; data?: T}>,
+  loadToken: () => Promise<{access_token: string; refresh_token?: string} | null>
+): Promise<{ok: boolean; status: number; detail: string; data?: T}> {
+  const token = await loadToken();
+  if (!token?.access_token) {
+    return {ok: false, status: 0, detail: 'Missing user-context OAuth token. Run: ft auth'};
+  }
+
+  const result = await fn(token.access_token);
+  if (result.status !== 401 || !token.refresh_token) {
+    return result;
+  }
+
+  // Token expired — attempt refresh and retry once
+  try {
+    const refreshed = await refreshOAuthToken(token.refresh_token);
+    await saveTwitterOAuthToken(refreshed);
+    const retryResult = await fn(refreshed.access_token);
+    return retryResult;
+  } catch (refreshErr: any) {
+    // Refresh token also expired or other error — surface the original failure
+    if (refreshErr.message?.includes('expired')) {
+      throw new Error('OAuth session expired. Re-run: ft auth');
+    }
+    throw refreshErr;
+  }
 }
 
 async function fetchBookmarksPage(accessToken: string, userId: string, nextToken?: string): Promise<{ok: boolean; status: number; detail: string; page?: BookmarkApiResponse; requestUrl: string}> {
@@ -168,15 +198,15 @@ async function fetchBookmarksPage(accessToken: string, userId: string, nextToken
 }
 
 export async function syncTwitterBookmarks(mode: 'full' | 'incremental', options: {targetAdds?: number} = {}): Promise<BookmarkSyncResult> {
-  const token = await loadTwitterOAuthToken();
-  if (!token?.access_token) {
-    throw new Error('Missing user-context OAuth token. Run: ft auth');
+  const loadToken = () => loadTwitterOAuthToken();
+  const meResult = await withTokenRefresh('fetchCurrentUserId', fetchCurrentUserId, loadToken);
+  if (!meResult.ok || !meResult.data?.id) {
+    if (meResult.status === 0 && meResult.detail.includes('Missing user-context OAuth token')) {
+      throw new Error('Missing user-context OAuth token. Run: ft auth');
+    }
+    throw new Error(`Could not resolve current user id: ${meResult.detail}`);
   }
-
-  const me = await fetchCurrentUserId(token.access_token);
-  if (!me.ok || !me.id) {
-    throw new Error(`Could not resolve current user id: ${me.detail}`);
-  }
+  const meId = meResult.data.id;
 
   ensureDataDir();
   const cachePath = twitterBookmarksCachePath();
@@ -185,13 +215,45 @@ export async function syncTwitterBookmarks(mode: 'full' | 'incremental', options
   const existing = await readJsonLines<BookmarkRecord>(cachePath);
   const existingById = new Map(existing.map((item) => [item.id, item]));
 
+  // Track current access token for the pagination loop
+  let currentToken = (await loadToken())!;
   const allFetched: BookmarkRecord[] = [];
   let nextToken: string | undefined;
   let pages = 0;
   const maxPages = mode === 'full' ? 200 : 2;
 
   while (pages < maxPages) {
-    const pageResult = await fetchBookmarksPage(token.access_token, me.id, nextToken);
+    const pageResult = await fetchBookmarksPage(currentToken.access_token, meId, nextToken);
+
+    // Handle 401 by refreshing token and retrying once
+    if (pageResult.status === 401 && currentToken.refresh_token) {
+      try {
+        const refreshed = await refreshOAuthToken(currentToken.refresh_token);
+        await saveTwitterOAuthToken(refreshed);
+        currentToken = refreshed;
+        const retryResult = await fetchBookmarksPage(currentToken.access_token, meId, nextToken);
+        if (!retryResult.ok || !retryResult.page) {
+          throw new Error(`Bookmark fetch failed (${retryResult.status}): ${retryResult.detail}`);
+        }
+        const normalized = normalizeBookmarkPage(retryResult.page, now);
+        allFetched.push(...normalized);
+        nextToken = retryResult.page.meta?.next_token;
+        pages += 1;
+        if (!nextToken) break;
+        if (mode === 'incremental' && normalized.every((item) => existingById.has(item.id))) break;
+        if (typeof options.targetAdds === 'number') {
+          const uniqueAddsSoFar = allFetched.filter((item, index, arr) => arr.findIndex((x) => x.id === item.id) === index).filter((item) => !existingById.has(item.id)).length;
+          if (uniqueAddsSoFar >= options.targetAdds) break;
+        }
+        continue;
+      } catch (refreshErr: any) {
+        if (refreshErr.message?.includes('expired')) {
+          throw new Error('OAuth session expired. Re-run: ft auth');
+        }
+        throw refreshErr;
+      }
+    }
+
     if (!pageResult.ok || !pageResult.page) {
       throw new Error(`Bookmark fetch failed (${pageResult.status}): ${pageResult.detail}`);
     }
