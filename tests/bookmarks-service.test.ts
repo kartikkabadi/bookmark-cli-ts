@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { withIsolatedDataDir } from './helpers.js';
 import { writeJson } from '../src/fs.js';
 import { formatBookmarkStatus, formatBookmarkSummary, getBookmarkStatusView } from '../src/bookmarks-service.js';
 
@@ -50,11 +49,8 @@ test('formatBookmarkSummary produces concise operator-friendly output', () => {
 });
 
 test('getBookmarkStatusView uses the most recent sync timestamp', async () => {
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'ft-status-view-'));
-  process.env.FT_DATA_DIR = tmpDir;
-
-  try {
-    await writeJson(path.join(tmpDir, 'bookmarks-meta.json'), {
+  await withIsolatedDataDir(async (dir) => {
+    await writeJson(path.join(dir, 'bookmarks-meta.json'), {
       provider: 'twitter',
       schemaVersion: 1,
       lastIncrementalSyncAt: '2026-04-05T10:00:00Z',
@@ -67,8 +63,5 @@ test('getBookmarkStatusView uses the most recent sync timestamp', async () => {
     assert.equal(view.bookmarkCount, 3);
     assert.equal(view.lastUpdated, '2026-04-05T12:34:56Z');
     assert.equal(view.connected, false);
-  } finally {
-    delete process.env.FT_DATA_DIR;
-    await rm(tmpDir, { recursive: true, force: true });
-  }
+  });
 });

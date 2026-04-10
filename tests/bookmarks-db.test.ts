@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { withIsolatedDataDir } from './helpers.js';
 import { buildIndex, searchBookmarks, getStats, formatSearchResults, getBookmarkById } from '../src/bookmarks-db.js';
 import { openDb, saveDb } from '../src/db.js';
 import { twitterBookmarksIndexPath } from '../src/paths.js';
@@ -13,23 +13,11 @@ const FIXTURES = [
   { id: '3', tweetId: '3', url: 'https://x.com/alice/status/3', text: 'Deep learning models need massive compute', authorHandle: 'alice', authorName: 'Alice Smith', syncedAt: '2026-03-01T00:00:00Z', postedAt: '2026-03-01T12:00:00Z', language: 'en', engagement: { likeCount: 200, repostCount: 30 }, mediaObjects: [{ type: 'photo', url: 'https://img.com/1.jpg' }], links: [], tags: [], ingestedVia: 'graphql' },
 ];
 
-async function withIsolatedDataDir(fn: () => Promise<void>): Promise<void> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'ft-test-'));
-  const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
-  await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
-
-  const saved = process.env.FT_DATA_DIR;
-  process.env.FT_DATA_DIR = dir;
-  try {
-    await fn();
-  } finally {
-    if (saved !== undefined) process.env.FT_DATA_DIR = saved;
-    else delete process.env.FT_DATA_DIR;
-  }
-}
-
 test('buildIndex creates a searchable database', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     const result = await buildIndex();
     assert.equal(result.recordCount, 3);
     assert.equal(result.newRecords, 3);
@@ -37,7 +25,10 @@ test('buildIndex creates a searchable database', async () => {
 });
 
 test('buildIndex refreshes existing rows without dropping classifications', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     await buildIndex();
 
     const dbPath = twitterBookmarksIndexPath();
@@ -63,8 +54,8 @@ test('buildIndex refreshes existing rows without dropping classifications', asyn
           }
         : fixture
     );
-    const jsonl = updatedFixtures.map((r) => JSON.stringify(r)).join('\n') + '\n';
-    await writeFile(path.join(process.env.FT_DATA_DIR!, 'bookmarks.jsonl'), jsonl);
+    const updatedJsonl = updatedFixtures.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), updatedJsonl);
 
     const result = await buildIndex();
     assert.equal(result.recordCount, 3);
@@ -83,7 +74,10 @@ test('buildIndex refreshes existing rows without dropping classifications', asyn
 });
 
 test('searchBookmarks: full-text search returns matching results', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     await buildIndex();
     const results = await searchBookmarks({ query: 'learning', limit: 10 });
     assert.equal(results.length, 2);
@@ -93,7 +87,10 @@ test('searchBookmarks: full-text search returns matching results', async () => {
 });
 
 test('searchBookmarks: author filter works', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     await buildIndex();
     const results = await searchBookmarks({ query: '', author: 'alice', limit: 10 });
     assert.equal(results.length, 2);
@@ -102,7 +99,10 @@ test('searchBookmarks: author filter works', async () => {
 });
 
 test('searchBookmarks: combined query + author filter', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     await buildIndex();
     const results = await searchBookmarks({ query: 'learning', author: 'alice', limit: 10 });
     assert.equal(results.length, 2);
@@ -110,7 +110,10 @@ test('searchBookmarks: combined query + author filter', async () => {
 });
 
 test('searchBookmarks: no results for unmatched query', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     await buildIndex();
     const results = await searchBookmarks({ query: 'cryptocurrency', limit: 10 });
     assert.equal(results.length, 0);
@@ -118,7 +121,10 @@ test('searchBookmarks: no results for unmatched query', async () => {
 });
 
 test('getStats returns correct aggregate data', async () => {
-  await withIsolatedDataDir(async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
     await buildIndex();
     const stats = await getStats();
     assert.equal(stats.totalBookmarks, 3);
