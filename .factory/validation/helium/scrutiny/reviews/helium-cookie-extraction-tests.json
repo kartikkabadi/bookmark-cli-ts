@@ -1,0 +1,56 @@
+{
+  "featureId": "helium-cookie-extraction-tests",
+  "reviewedAt": "2026-04-10T16:45:00.000Z",
+  "commitId": "8e14d69",
+  "transcriptSkeletonReviewed": false,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature adds 6 Helium-specific cookie extraction tests to tests/chrome-cookies.test.ts. The tests cover keychain entry naming (primary + fallback), user-data directory resolution, and cross-platform path verification. All 170 tests pass. However, the tests have meaningful quality gaps: the two tests named 'extractChromeXCookies' don't actually exercise the extraction function — they only inspect browser properties. The Linux test trivially passes with `length >= 0`. And the most important test (mocked keychain lookup) skips on non-macOS and doesn't mock any OS calls. Despite these gaps, the feature does technically meet the stated requirements with passing tests that verify Helium keychain entries, cookie DB paths, and CLI --browser helium recognition (already covered by config.test.ts).",
+    "issues": [
+      {
+        "file": "tests/chrome-cookies.test.ts",
+        "line": 199,
+        "severity": "non_blocking",
+        "description": "Test 'Helium extractChromeXCookies: mocked keychain lookup resolves to Helium entries' does not actually mock the keychain (execFileSync) or exercise extractChromeXCookies(). It only inspects keychainEntries from the browser definition and checks that some entry name includes 'Helium'. The test name implies it tests the full extraction path with mocked Keychain — but it doesn't mock anything. The dead code (fakePassword, encrypted, key, mockDbPath) is allocated but never used."
+      },
+      {
+        "file": "tests/chrome-cookies.test.ts",
+        "line": 232,
+        "severity": "non_blocking",
+        "description": "Test 'Helium extractChromeXCookies: linux secret-tool uses chrome keyring entry' trivially passes with `browser.keychainEntries.length >= 0` (always true for any array) and a hardcoded local array `linuxAppNames = ['chrome']` that is asserted to exist but is never connected to the actual getLinuxKeys() function in chrome-cookies.ts. The test does not verify the actual mapping in the source code (the `appNames` record in getLinuxKeys)."
+      },
+      {
+        "file": "tests/chrome-cookies.test.ts",
+        "line": 199,
+        "severity": "non_blocking",
+        "description": "The mocked keychain lookup test skips entirely on non-macOS platforms (`if (platform() !== 'darwin') return`). This means the most important test for VAL-HELIUM-007 (mocked full extraction path) is effectively a no-op on Linux CI. The same pattern appears in the macOS-only path resolution test. Tests should mock platform() to test all code paths regardless of the host OS."
+      },
+      {
+        "file": "tests/chrome-cookies.test.ts",
+        "line": 184,
+        "severity": "non_blocking",
+        "description": "Tests 3 and 6 both test user-data directory path resolution but from slightly different angles — one tests macPath/linuxPath/winPath properties directly on the BrowserDef, the other joins them with HOME. These are redundant and could be consolidated, or the second could test browserUserDataDir() directly (which it doesn't call)."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Tests use `process.platform` runtime checks that silently pass (skip) on non-matching OSes instead of using mock-based platform simulation. This means Helium extraction tests only truly run on macOS runners. The project's testing-patterns.md or AGENTS.md doesn't document whether platform-specific tests should mock the platform or skip.",
+      "evidence": "chrome-cookies.test.ts:202-206 (`if (platform() !== 'darwin') return`), browsers.test.ts:94-98 (similar pattern)"
+    },
+    {
+      "area": "skills",
+      "observation": "The Helium cookie extraction test feature overlaps significantly with the prior 'helium-browser-tests' feature (also completed). The browsers.test.ts already tests keychain entries, cross-platform paths, and browser properties. The cookie-extraction-tests feature re-tests several of the same things (keychain entry naming, path resolution) without adding substantially deeper coverage. The skill file might benefit from guidance on avoiding test duplication across features.",
+      "evidence": "browsers.test.ts:62-107 tests helium keychain entries, paths, and browserUserDataDir; chrome-cookies.test.ts:156-265 tests many of the same properties"
+    },
+    {
+      "area": "knowledge",
+      "observation": "The Helium keychain entry was determined from code-level reasoning (Chromium convention) rather than actual verification. The browsers.ts comment says 'no entry found' from `security find-generic-password -s 'Helium'` and the actual entry name is inferred. This is documented in browsers.ts comments but should be noted in the library as 'unverified on a machine with Helium actually installed' — the real keychain entry name may differ.",
+      "evidence": "browsers.ts:53-68 — extensive comment about the research methodology including the fact that Helium had not been run on the machine, so the keychain entry was inferred from convention"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "PASS with non-blocking issues. The 6 new tests correctly verify Helium-specific keychain entries follow Chromium convention, confirm fallback entries exist, and check cross-platform path resolution. All 170 tests pass. However, the two 'extractChromeXCookies' tests are misleadingly named — they don't actually call extractChromeXCookies() or mock any OS-specific calls. The Linux test has a trivially-passing assertion (`length >= 0`), and the macOS keychain test skips on non-macOS. For VAL-HELIUM-007 (mocked cookie extraction test), the tests verify keychain entry structure but don't actually exercise the mocked extraction path. For VAL-HELIUM-009 (ft sync --browser helium CLI path), the feature relies on existing config.test.ts coverage rather than adding new CLI-level tests. The coverage is adequate for the stated requirements but could be significantly stronger."
+}

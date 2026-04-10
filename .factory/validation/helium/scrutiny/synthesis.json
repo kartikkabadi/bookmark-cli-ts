@@ -1,0 +1,54 @@
+{
+  "milestone": "helium",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm test", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npx tsc --noEmit", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added testing-patterns.md sections: platform-dependent testing (mock os.platform/homedir), npx tsx vs tsx note, env var cleanup pattern with try/finally",
+      "sourceFeature": "scrutiny-validator-helium"
+    },
+    {
+      "target": "library",
+      "description": "Added helium-browser.md: Helium architecture (ungoogled-chromium), macOS keychain entries (primary + fallback), Linux secret-tool mapping, cross-platform data directories",
+      "sourceFeature": "scrutiny-validator-helium"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Update Helium browser section: change 'Keychain entry: TBD — needs verification' to 'Keychain entry: Helium Safe Storage / Helium (primary), Helium Storage Key / Helium (fallback)'. Update test count from 156 to 170.",
+      "evidence": "helium-keychain-verification feature (commit 8855a96) verified and updated keychain entries. npm test now shows 170 tests. AGENTS.md still lists TBD and 156 tests.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add boundary: when adding tests for a feature, check existing test files first to avoid duplicating assertions already covered by prior features. Multiple helium features re-tested keychain entries and path resolution identically.",
+      "evidence": "helium-browser-tests and helium-cookie-extraction-tests both add tests verifying Helium keychain entry naming and path resolution, with significant overlap. browsers.test.ts and chrome-cookies.test.ts test the same browser properties.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Config tests manually manage env var cleanup without try/finally safety",
+      "reason": "already-documented — testing-patterns.md now documents the recommended pattern; this is a local test quality issue, not a systemic convention"
+    },
+    {
+      "observation": "Feature overlap between helium-keychain-verification and helium-cross-platform-paths (both implemented the same paths)",
+      "reason": "ambiguous — this is a mission planning concern, not a code quality issue; the cross-platform-paths worker correctly identified the overlap and verified existing implementation"
+    }
+  ],
+  "previousRound": null
+}

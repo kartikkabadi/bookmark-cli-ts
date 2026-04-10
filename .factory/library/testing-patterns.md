@@ -47,3 +47,41 @@ Key behaviors:
 
 - `npm run typecheck` runs `tsc --noEmit` with strict mode enabled
 - All new code must pass both typecheck and lint
+
+## Running Individual Tests
+
+- Use `npx tsx --test tests/some-file.test.ts` (NOT `tsx --test` — tsx is not globally installed)
+- `npm test` runs all tests via `tsx --test tests/**/*.test.ts`
+
+## Testing Platform-Dependent Behavior
+
+Tests that depend on `os.platform()` or `os.homedir()` currently use runtime conditionals like `if (platform() === 'darwin')`, which silently pass without assertions on non-matching OSes.
+
+**Recommended approach:** Mock `os.platform()` and `os.homedir()` for deterministic cross-platform tests, so assertions run on all CI runners regardless of host OS:
+
+```ts
+import os from 'node:os';
+test('browserUserDataDir on Linux', async (t) => {
+  t.mock.method(os, 'platform', () => 'linux');
+  t.mock.method(os, 'homedir', () => '/home/testuser');
+  const result = browserUserDataDir('helium');
+  assert.equal(result, '/home/testuser/.config/helium');
+});
+```
+
+Alternative: use `assert.skip('macOS-only')` at the start so the skip is visible in test reports.
+
+## Environment Variable Cleanup in Tests
+
+Config tests manually manage env var cleanup (`delete process.env.XYZ` after each test). This is fragile — a throw before cleanup pollutes subsequent tests. Use save/restore in try/finally:
+
+```ts
+const saved = process.env.FT_BROWSER;
+try {
+  process.env.FT_BROWSER = 'helium';
+  // ... test ...
+} finally {
+  if (saved === undefined) delete process.env.FT_BROWSER;
+  else process.env.FT_BROWSER = saved;
+}
+```
