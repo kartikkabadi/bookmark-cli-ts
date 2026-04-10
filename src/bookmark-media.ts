@@ -5,6 +5,79 @@ import {ensureDir, pathExists, readJson, readJsonLines, writeJson} from './fs.js
 import {bookmarkMediaDir, bookmarkMediaManifestPath, twitterBookmarksCachePath} from './paths.js';
 import type {BookmarkRecord} from './types.js';
 
+export interface MediaUrlValidation {
+  valid: boolean;
+  reason?: string;
+}
+
+// Reserved/private IP blocks to block
+// 127.0.0.0/8 — loopback
+// 10.0.0.0/8 — private
+// 172.16.0.0/12 — private
+// 192.168.0.0/16 — private
+// 169.254.0.0/16 — link-local (includes 169.254.169.254 AWS metadata)
+const PRIVATE_IP_BLOCKS: Array<{ip: string; mask: number}> = [
+  {ip: '127.0.0.0', mask: 8},
+  {ip: '10.0.0.0', mask: 8},
+  {ip: '172.16.0.0', mask: 12},
+  {ip: '192.168.0.0', mask: 16},
+  {ip: '169.254.0.0', mask: 16},
+];
+
+function ipToNumber(ip: string): number {
+  return ip.split('.').reduce((acc, octet) => (acc << 8) + Number(octet), 0);
+}
+
+function ipMatchesBlock(ip: string, blockIp: string, mask: number): boolean {
+  const targetNum = ipToNumber(ip);
+  const blockNum = ipToNumber(blockIp);
+  const bits = 32 - mask;
+  return (targetNum >> bits) === (blockNum >> bits);
+}
+
+function isPrivateIp(hostname: string): boolean {
+  if (PRIVATE_IP_BLOCKS.some((b) => ipMatchesBlock(hostname, b.ip, b.mask))) return true;
+  // Also block numeric IPv4 addresses that Node.js may resolve
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+    // Numeric IP: check all private blocks
+    if (PRIVATE_IP_BLOCKS.some((b) => ipMatchesBlock(hostname, b.ip, b.mask))) return true;
+  }
+  return false;
+}
+
+export function validateMediaUrl(urlString: string): MediaUrlValidation {
+  let url: URL;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return {valid: false, reason: 'Invalid URL format'};
+  }
+
+  const scheme = url.protocol.toLowerCase();
+  if (scheme !== 'https:') {
+    return {valid: false, reason: `Unsupported URL scheme: ${scheme.replace(':', '')}`};
+  }
+
+  const hostname = url.hostname.toLowerCase();
+
+  // Reject localhost (case-insensitive)
+  if (hostname === 'localhost') {
+    return {valid: false, reason: 'Private/network address not allowed: localhost'};
+  }
+
+  // Reject loopback
+  if (hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
+    return {valid: false, reason: 'Private/network address not allowed: loopback address'};
+  }
+
+  // Reject private IP ranges
+  if (isPrivateIp(hostname)) {
+    return {valid: false, reason: `Private/network address not allowed: ${hostname}`};
+  }
+
+  return {valid: true};
+}
+
 export interface MediaFetchEntry {
   bookmarkId: string;
   tweetId: string;
@@ -99,6 +172,24 @@ export async function fetchBookmarkMediaBatch(options: {limit?: number; maxBytes
       processed += 1;
 
       const fetchedAt = new Date().toISOString();
+
+      // SSRF protection: validate URL before fetching
+      const validation = validateMediaUrl(sourceUrl);
+      if (!validation.valid) {
+        entries.push({
+          bookmarkId: bookmark.id,
+          tweetId: bookmark.tweetId,
+          tweetUrl: bookmark.url,
+          authorHandle: bookmark.authorHandle,
+          authorName: bookmark.authorName,
+          sourceUrl,
+          status: 'failed',
+          reason: validation.reason ?? 'Invalid URL',
+          fetchedAt
+        });
+        failed += 1;
+        continue;
+      }
 
       try {
         const head = await fetch(sourceUrl, {method: 'HEAD'});
