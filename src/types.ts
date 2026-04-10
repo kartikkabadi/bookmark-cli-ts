@@ -104,3 +104,10 @@ export interface BookmarkBackfillState {
   /** Saved pagination cursor for resuming an interrupted sync. */
   lastCursor?: string;
 }
+
+/** Persists which gap-fill IDs have already been processed so runs can resume. */
+export interface GapfillState {
+  processedIds: Set<string>;
+  /** Snapshot of the IDs remaining at the start of the run, for progress reporting. */
+  totalIds: string[];
+}

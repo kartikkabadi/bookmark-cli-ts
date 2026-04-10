@@ -1,9 +1,9 @@
 import {ensureDir, readJsonLines, writeJsonLines, readJson, writeJson, pathExists} from './fs.js';
-import {ensureDataDir, twitterBookmarksCachePath, twitterBookmarksMetaPath, twitterBackfillStatePath} from './paths.js';
+import {ensureDataDir, twitterBookmarksCachePath, twitterBookmarksMetaPath, twitterBackfillStatePath, twitterGapfillStatePath} from './paths.js';
 import {loadChromeSessionConfig} from './config.js';
 import {extractChromeXCookies} from './chrome-cookies.js';
 import {extractFirefoxXCookies} from './firefox-cookies.js';
-import type {BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord, QuotedTweetSnapshot} from './types.js';
+import type {BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord, GapfillState, QuotedTweetSnapshot} from './types.js';
 import {exportBookmarksForSyncSeed, updateQuotedTweets, updateBookmarkText} from './bookmarks-db.js';
 
 const CHROME_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
@@ -761,6 +761,7 @@ export interface GapFillResult {
 export async function syncGaps(options?: {onProgress?: (progress: GapFillProgress) => void; delayMs?: number}): Promise<GapFillResult> {
   const delayMs = options?.delayMs ?? 300;
   const cachePath = twitterBookmarksCachePath();
+  const statePath = twitterGapfillStatePath();
   const loaded = sanitizeRecords(await readJsonLines<BookmarkRecord>(cachePath));
   const records = loaded.records;
 
@@ -787,8 +788,35 @@ export async function syncGaps(options?: {onProgress?: (progress: GapFillProgres
   }
 
   // Combine all IDs to fetch — deduplicated
-  const allFetchIds = [...new Set([...quotedIds, ...truncatedIds])];
-  const total = allFetchIds.length;
+  let allFetchIds = [...new Set([...quotedIds, ...truncatedIds])];
+
+  // Load gap-fill state and skip already-processed IDs
+  let processedIds = new Set<string>();
+  let resumedFrom = 0;
+  if (await pathExists(statePath)) {
+    try {
+      const state: GapfillState = await readJson(statePath);
+      processedIds = new Set(state.processedIds);
+      const remaining = allFetchIds.filter((id) => !processedIds.has(id));
+      if (processedIds.size > 0 && remaining.length < allFetchIds.length) {
+        resumedFrom = processedIds.size;
+        allFetchIds = remaining;
+        options?.onProgress?.({
+          done: resumedFrom,
+          total: resumedFrom + allFetchIds.length,
+          quotedFetched: 0,
+          textExpanded: 0,
+          failed: 0,
+        });
+      }
+    } catch {
+      console.warn('Gap-fill state file corrupted; starting fresh.');
+      processedIds = new Set();
+    }
+  }
+
+  const totalToProcess = allFetchIds.length;
+  const total = resumedFrom + totalToProcess;
 
   let quotedFetched = 0;
   let textExpanded = 0;
@@ -848,17 +876,21 @@ export async function syncGaps(options?: {onProgress?: (progress: GapFillProgres
       }
     }
 
+    // Track processed ID
+    processedIds.add(tweetId);
+
     options?.onProgress?.({
-      done: i + 1,
+      done: resumedFrom + i + 1,
       total,
       quotedFetched,
       textExpanded,
       failed
     });
 
-    // Checkpoint every 100 fetches
-    if ((i + 1) % 100 === 0) {
+    // Checkpoint every 100 fetches and on final save
+    if ((i + 1) % 100 === 0 || i === allFetchIds.length - 1) {
       await writeJsonLines(cachePath, records);
+      await writeJson(statePath, { processedIds: Array.from(processedIds), totalIds: [] });
     }
 
     if (i < allFetchIds.length - 1) {

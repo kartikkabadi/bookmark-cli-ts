@@ -36,6 +36,10 @@ export function twitterBackfillStatePath(): string {
   return path.join(dataDir(), 'bookmarks-backfill-state.json');
 }
 
+export function twitterGapfillStatePath(): string {
+  return path.join(dataDir(), 'bookmarks-gapfill-state.json');
+}
+
 export function bookmarkMediaDir(): string {
   return path.join(dataDir(), 'media');
 }

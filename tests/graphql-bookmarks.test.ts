@@ -578,3 +578,150 @@ test('formatSyncResult: formats all fields', () => {
   assert.ok(result.includes('end of bookmarks'));
   assert.ok(result.includes('/tmp/cache.jsonl'));
 });
+
+// ── Gap-fill state persistence tests ─────────────────────────────────────
+
+import { withIsolatedDataDir } from './helpers.js';
+import { twitterGapfillStatePath, twitterBookmarksCachePath } from '../src/paths.js';
+import { writeJson, pathExists, readJson, readJsonLines, writeJsonLines } from '../src/fs.js';
+import type { BookmarkRecord } from '../src/types.js';
+
+/**
+ * Test helper: mocks globalThis.fetch to return 404 (not_found) for syndication URLs,
+ * allowing syncGaps to run end-to-end without real network calls and without
+ * triggering updateQuotedTweets/updateBookmarkText (since no snapshots are returned).
+ */
+async function runSyncGapsWithMocks(options?: { onProgress?: (p: any) => void; delayMs?: number }) {
+  // Mock globalThis.fetch to return not_found for syndication URLs
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url: string | URL | Request, _init?: RequestInit) => {
+    const urlStr = String(url);
+    if (urlStr.includes('cdn.syndication.twimg.com')) {
+      return new Response(JSON.stringify({ text: null }), { status: 404 });
+    }
+    return origFetch(url, _init);
+  };
+
+  try {
+    const { syncGaps } = await import('../src/graphql-bookmarks.js');
+    return await syncGaps(options);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+}
+
+test('syncGaps: saves processed IDs to bookmarks-gapfill-state.json', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    // Create cache with a quoted tweet that needs backfilling
+    const cachePath = dir + '/bookmarks.jsonl';
+    const records = [{
+      id: '111',
+      tweetId: '111',
+      url: 'https://x.com/user/status/111',
+      text: 'Original text',
+      syncedAt: NOW,
+      tags: [],
+      ingestedVia: 'graphql' as const,
+      quotedStatusId: '555',
+      quotedTweet: undefined,
+    }];
+    await writeJsonLines(cachePath, records);
+
+    const result = await runSyncGapsWithMocks({ delayMs: 0 });
+    assert.equal(result.total, 1);
+    // State file should exist now
+    const statePath = twitterGapfillStatePath();
+    const exists = await pathExists(statePath);
+    assert.ok(exists, 'gapfill state file should be created');
+    const state = await readJson(statePath);
+    assert.ok(Array.isArray(state.processedIds), 'processedIds should be an array');
+    assert.ok(state.processedIds.includes('555'), 'quotedStatusId should be in processedIds');
+  });
+});
+
+test('syncGaps: re-running skips already-processed IDs', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    // Set up cache with two records needing gap-fill
+    const cachePath = dir + '/bookmarks.jsonl';
+    const records = [
+      {
+        id: '111',
+        tweetId: '111',
+        url: 'https://x.com/user/status/111',
+        text: 'Original text',
+        syncedAt: NOW,
+        tags: [],
+        ingestedVia: 'graphql' as const,
+        quotedStatusId: '555',
+        quotedTweet: undefined,
+      },
+      {
+        id: '222',
+        tweetId: '222',
+        url: 'https://x.com/user/status/222',
+        text: 'Another text here',
+        syncedAt: NOW,
+        tags: [],
+        ingestedVia: 'graphql' as const,
+        quotedStatusId: '666',
+        quotedTweet: undefined,
+      },
+    ];
+    await writeJsonLines(cachePath, records);
+
+    // Pre-populate state: only 555 has been processed
+    const statePath = twitterGapfillStatePath();
+    await writeJson(statePath, { processedIds: ['555'], totalIds: [] });
+
+    // The onProgress should reflect resumption: done starts at 1, not 0
+    let progressSeen: number[] = [];
+    const result = await runSyncGapsWithMocks({
+      delayMs: 0,
+      onProgress: (p: any) => { progressSeen.push(p.done); },
+    });
+
+    // Only '666' should be processed in this run (555 skipped)
+    assert.equal(result.total, 2, 'total should be 2 (1 skipped + 1 processed)');
+    // The progress should start at done=1 (resuming from 1 processed)
+    assert.ok(progressSeen[0] >= 1, `first progress done should be >= 1 for resumption, got ${progressSeen[0]}`);
+  });
+});
+
+test('syncGaps: corrupted state file produces warning and starts fresh', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    // Create cache with a record needing gap-fill
+    const cachePath = dir + '/bookmarks.jsonl';
+    const records = [{
+      id: '333',
+      tweetId: '333',
+      url: 'https://x.com/user/status/333',
+      text: 'Some text',
+      syncedAt: NOW,
+      tags: [],
+      ingestedVia: 'graphql' as const,
+      quotedStatusId: '777',
+      quotedTweet: undefined,
+    }];
+    await writeJsonLines(cachePath, records);
+
+    // Write corrupted state file (truncated JSON — missing closing brace)
+    const statePath = twitterGapfillStatePath();
+    const fs = await import('node:fs');
+    fs.writeFileSync(statePath, '{"processedIds": [');
+
+    // Spy on console.warn to capture the warning
+    const warnings: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (msg: string) => warnings.push(msg);
+
+    try {
+      // Should not throw, should start fresh
+      const result = await runSyncGapsWithMocks({ delayMs: 0 });
+      assert.equal(result.total, 1, 'should process the single ID from scratch');
+    } finally {
+      console.warn = origWarn;
+    }
+
+    assert.ok(warnings.some(w => w.includes('corrupted')), 'should log a warning about corrupted state');
+  });
+});
