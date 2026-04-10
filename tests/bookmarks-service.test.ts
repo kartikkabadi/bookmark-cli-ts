@@ -48,6 +48,19 @@ test('formatBookmarkSummary produces concise operator-friendly output', () => {
   assert.match(text, /mode="API sync"/);
 });
 
+test('formatBookmarkSummary handles null lastUpdated', () => {
+  const text = formatBookmarkSummary({
+    connected: false,
+    bookmarkCount: 0,
+    lastUpdated: null,
+    mode: 'Incremental by default (GraphQL)',
+    cachePath: '/tmp/x-bookmarks.jsonl',
+  });
+
+  assert.match(text, /bookmarks=0/);
+  assert.match(text, /updated=never/);
+});
+
 test('getBookmarkStatusView uses the most recent sync timestamp', async () => {
   await withIsolatedDataDir(async (dir) => {
     await writeJson(path.join(dir, 'bookmarks-meta.json'), {
@@ -63,5 +76,77 @@ test('getBookmarkStatusView uses the most recent sync timestamp', async () => {
     assert.equal(view.bookmarkCount, 3);
     assert.equal(view.lastUpdated, '2026-04-05T12:34:56Z');
     assert.equal(view.connected, false);
+  });
+});
+
+test('getBookmarkStatusView uses lastIncrementalSyncAt when lastFullSyncAt is absent', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    await writeJson(path.join(dir, 'bookmarks-meta.json'), {
+      provider: 'twitter',
+      schemaVersion: 1,
+      lastIncrementalSyncAt: '2026-04-05T15:00:00Z',
+      totalBookmarks: 7,
+    });
+
+    const view = await getBookmarkStatusView();
+
+    assert.equal(view.bookmarkCount, 7);
+    assert.equal(view.lastUpdated, '2026-04-05T15:00:00Z');
+  });
+});
+
+test('getBookmarkStatusView returns never when no sync has occurred', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    // Write metadata with no sync timestamps
+    await writeJson(path.join(dir, 'bookmarks-meta.json'), {
+      provider: 'twitter',
+      schemaVersion: 1,
+      totalBookmarks: 0,
+    });
+
+    const view = await getBookmarkStatusView();
+
+    assert.equal(view.bookmarkCount, 0);
+    assert.equal(view.lastUpdated, null);
+  });
+});
+
+test('getBookmarkStatusView sets connected=true when OAuth token exists', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    process.env.FT_DATA_DIR = dir;
+
+    // Write bookmarks-meta.json first
+    await writeJson(path.join(dir, 'bookmarks-meta.json'), {
+      provider: 'twitter',
+      schemaVersion: 1,
+      lastIncrementalSyncAt: '2026-04-05T10:00:00Z',
+      totalBookmarks: 3,
+    });
+
+    // Create oauth-token.json to simulate connected state
+    await writeJson(path.join(dir, 'oauth-token.json'), {
+      access_token: 'test-access-token',
+      refresh_token: 'test-refresh-token',
+    });
+
+    const view = await getBookmarkStatusView();
+
+    assert.equal(view.connected, true);
+    assert.ok(view.mode.includes('API'), 'mode should indicate API is available');
+  });
+});
+
+test('getBookmarkStatusView sets cachePath from status', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    await writeJson(path.join(dir, 'bookmarks-meta.json'), {
+      provider: 'twitter',
+      schemaVersion: 1,
+      lastIncrementalSyncAt: '2026-04-05T10:00:00Z',
+      totalBookmarks: 5,
+    });
+
+    const view = await getBookmarkStatusView();
+
+    assert.ok(view.cachePath.length > 0, 'cachePath should be set');
   });
 });
