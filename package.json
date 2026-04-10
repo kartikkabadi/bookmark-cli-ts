@@ -12,7 +12,9 @@
     "test": "tsx --test tests/**/*.test.ts",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "lint": "eslint src/",
+    "format:check": "prettier --check src/"
   },
   "files": [
     "bin/",
@@ -46,9 +48,13 @@
     "sql.js-fts5": "^1.4.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.5.0",
     "@types/sql.js": "^1.4.11",
+    "eslint": "^10.2.0",
+    "prettier": "^3.8.2",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.1"
   }
 }
