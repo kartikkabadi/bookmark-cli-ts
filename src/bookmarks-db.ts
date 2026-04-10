@@ -335,6 +335,66 @@ export async function buildIndex(options?: {force?: boolean}): Promise<{dbPath: 
   }
 }
 
+/**
+ * Sanitize and validate an FTS5 search query.
+ *
+ * Rejects queries that are empty, contain NULL bytes, or consist only of
+ * FTS5 operators (AND, OR, NOT) or special characters. Preserves valid FTS5
+ * features: quoted phrases ("exact phrase"), prefix search (term*), and
+ * boolean combinations (word1 AND word2).
+ *
+ * @throws Error with descriptive message for invalid queries
+ */
+export function sanitizeFtsQuery(query: string): string {
+  // Reject null bytes outright — they indicate malicious input
+  if (query.includes('\0')) {
+    throw new Error('Invalid search query: contains NULL bytes');
+  }
+
+  const trimmed = query.trim();
+
+  // Reject empty or whitespace-only queries
+  if (!trimmed) {
+    throw new Error('Invalid search query: empty query');
+  }
+
+  // Strategy: extract "meaningful tokens" — words, quoted strings, prefix patterns.
+  // If nothing meaningful remains, the query is invalid.
+  //
+  // FTS5 meaningful constructs:
+  // - Quoted phrases: "exact phrase" (preserve content inside quotes)
+  // - Prefix search: word* (preserve the word part)
+  // - Column filters: author:handle (preserve both parts)
+  // - Regular words: hello, machine-learning (alphanumeric)
+  //
+  // We extract all alphanumeric sequences (including hyphenated words)
+  // and the content inside balanced double quotes.
+
+  // FTS5 boolean operators that should not be treated as standalone search terms
+  const FTS5_OPERATORS = new Set(['AND', 'OR', 'NOT', 'NEAR']);
+
+  // Extract quoted string contents (preserves phrase intent)
+  const quotedMatches = trimmed.match(/"([^"]*)"/g) ?? [];
+  const quotedContent = quotedMatches.map((m) => m.slice(1, -1));
+
+  // Extract regular word tokens (alphanumeric sequences, including hyphenated)
+  // This includes prefix patterns like "term*" - we capture "term"
+  const wordMatches = trimmed.match(/[a-zA-Z0-9][a-zA-Z0-9-]*/g) ?? [];
+
+  // Filter out pure FTS5 operators — they are syntax, not search terms
+  const nonOperatorTokens = wordMatches.filter((w) => !FTS5_OPERATORS.has(w.toUpperCase()));
+
+  // Combine meaningful content
+  const meaningfulTokens = [...quotedContent, ...nonOperatorTokens].filter((t) => t.length > 0);
+
+  // If no meaningful tokens remain, the query is just operators/special chars
+  if (meaningfulTokens.length === 0) {
+    throw new Error(`Invalid search query: "${trimmed}". Try simpler terms or wrap phrases in double quotes.`);
+  }
+
+  return trimmed;
+}
+
 export async function searchBookmarks(options: SearchOptions): Promise<SearchResult[]> {
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
@@ -346,8 +406,10 @@ export async function searchBookmarks(options: SearchOptions): Promise<SearchRes
     const params: any[] = [];
 
     if (options.query) {
+      // Sanitize the FTS query before passing to SQLite
+      const sanitizedQuery = sanitizeFtsQuery(options.query);
       conditions.push(`b.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ?)`);
-      params.push(options.query);
+      params.push(sanitizedQuery);
     }
     if (options.author) {
       conditions.push(`b.author_handle = ? COLLATE NOCASE`);

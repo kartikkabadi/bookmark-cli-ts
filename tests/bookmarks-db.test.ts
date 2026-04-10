@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { withIsolatedDataDir } from './helpers.js';
-import { buildIndex, searchBookmarks, getStats, formatSearchResults, getBookmarkById } from '../src/bookmarks-db.js';
+import { buildIndex, searchBookmarks, getStats, formatSearchResults, getBookmarkById, sanitizeFtsQuery } from '../src/bookmarks-db.js';
 import { openDb, saveDb } from '../src/db.js';
 import { twitterBookmarksIndexPath } from '../src/paths.js';
 
@@ -149,4 +149,133 @@ test('formatSearchResults: formats results with author, date, text, url', () => 
 
 test('formatSearchResults: returns message for empty results', () => {
   assert.equal(formatSearchResults([]), 'No results found.');
+});
+
+// ── FTS Query Sanitization ──────────────────────────────────────────────
+
+test('sanitizeFtsQuery: rejects empty string', () => {
+  assert.throws(() => sanitizeFtsQuery(''), /Invalid search query: empty query/);
+});
+
+test('sanitizeFtsQuery: rejects whitespace-only string', () => {
+  assert.throws(() => sanitizeFtsQuery('   '), /Invalid search query: empty query/);
+  assert.throws(() => sanitizeFtsQuery('\t\n'), /Invalid search query: empty query/);
+});
+
+test('sanitizeFtsQuery: rejects NULL bytes', () => {
+  assert.throws(() => sanitizeFtsQuery('hello\0world'), /Invalid search query: contains NULL bytes/);
+  assert.throws(() => sanitizeFtsQuery('\0'), /Invalid search query: contains NULL bytes/);
+});
+
+test('sanitizeFtsQuery: rejects query with only FTS5 operators', () => {
+  assert.throws(() => sanitizeFtsQuery('OR AND NOT'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('AND'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('OR'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('NOT'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('AND OR'), /Invalid search query/);
+});
+
+test('sanitizeFtsQuery: rejects query with only special characters', () => {
+  assert.throws(() => sanitizeFtsQuery('@#$%'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('***'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('!!!'), /Invalid search query/);
+  assert.throws(() => sanitizeFtsQuery('( )'), /Invalid search query/);
+});
+
+test('sanitizeFtsQuery: accepts valid simple word queries', () => {
+  assert.equal(sanitizeFtsQuery('hello'), 'hello');
+  assert.equal(sanitizeFtsQuery('machine learning'), 'machine learning');
+  assert.equal(sanitizeFtsQuery('hello-world'), 'hello-world');
+  assert.equal(sanitizeFtsQuery('machine123'), 'machine123');
+});
+
+test('sanitizeFtsQuery: accepts quoted phrase queries', () => {
+  assert.equal(sanitizeFtsQuery('"exact phrase"'), '"exact phrase"');
+  assert.equal(sanitizeFtsQuery('"machine learning"'), '"machine learning"');
+  assert.equal(sanitizeFtsQuery('hello "exact phrase" world'), 'hello "exact phrase" world');
+});
+
+test('sanitizeFtsQuery: accepts prefix search queries', () => {
+  assert.equal(sanitizeFtsQuery('term*'), 'term*');
+  assert.equal(sanitizeFtsQuery('machine*'), 'machine*');
+  assert.equal(sanitizeFtsQuery('hello* world'), 'hello* world');
+  assert.equal(sanitizeFtsQuery('"prefix*'), '"prefix*');
+});
+
+test('sanitizeFtsQuery: accepts combined valid FTS5 queries', () => {
+  assert.equal(sanitizeFtsQuery('hello AND world'), 'hello AND world');
+  assert.equal(sanitizeFtsQuery('machine OR deep'), 'machine OR deep');
+  assert.equal(sanitizeFtsQuery('hello NOT world'), 'hello NOT world');
+  assert.equal(sanitizeFtsQuery('"phrase" AND term*'), '"phrase" AND term*');
+});
+
+test('sanitizeFtsQuery: accepts queries with column filters', () => {
+  assert.equal(sanitizeFtsQuery('author:alice'), 'author:alice');
+  assert.equal(sanitizeFtsQuery('hello author:alice'), 'hello author:alice');
+});
+
+test('searchBookmarks: sanitizes query with only operators', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+    await buildIndex();
+
+    // Should throw with clear error, not crash with SQLite error
+    await assert.rejects(
+      () => searchBookmarks({ query: 'OR AND NOT', limit: 10 }),
+      /Invalid search query/
+    );
+  });
+});
+
+test('searchBookmarks: sanitizes query with special chars only', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+    await buildIndex();
+
+    // Should throw with clear error, not crash
+    await assert.rejects(
+      () => searchBookmarks({ query: '@#$%', limit: 10 }),
+      /Invalid search query/
+    );
+  });
+});
+
+test('searchBookmarks: preserves valid quoted phrase search', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+    await buildIndex();
+
+    // Valid quoted phrase with no matches — should return empty, not crash
+    const results = await searchBookmarks({ query: '"completely nonexistent phrase"', limit: 10 });
+    assert.equal(results.length, 0);
+  });
+});
+
+test('searchBookmarks: preserves valid prefix search', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+    await buildIndex();
+
+    // "mach*" matches "Machine" in fixture 1 (case-insensitive FTS5)
+    const results = await searchBookmarks({ query: 'mach*', limit: 10 });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].id, '1');
+  });
+});
+
+test('searchBookmarks: preserves valid OR queries', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\n') + '\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+    await buildIndex();
+
+    // "rust OR elixir" - should find bob's rust tweet
+    const results = await searchBookmarks({ query: 'rust OR elixir', limit: 10 });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].authorHandle, 'bob');
+  });
 });
