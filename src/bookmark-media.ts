@@ -1,9 +1,9 @@
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
-import { ensureDir, pathExists, readJson, readJsonLines, writeJson } from './fs.js';
-import { bookmarkMediaDir, bookmarkMediaManifestPath, twitterBookmarksCachePath } from './paths.js';
-import type { BookmarkRecord } from './types.js';
+import {createHash} from 'node:crypto';
+import {writeFile} from 'node:fs/promises';
+import {ensureDir, pathExists, readJson, readJsonLines, writeJson} from './fs.js';
+import {bookmarkMediaDir, bookmarkMediaManifestPath, twitterBookmarksCachePath} from './paths.js';
+import type {BookmarkRecord} from './types.js';
 
 export interface MediaFetchEntry {
   bookmarkId: string;
@@ -51,9 +51,7 @@ async function loadManifest(): Promise<MediaFetchManifest | null> {
   return readJson<MediaFetchManifest>(manifestPath);
 }
 
-export async function fetchBookmarkMediaBatch(
-  options: { limit?: number; maxBytes?: number } = {}
-): Promise<MediaFetchManifest> {
+export async function fetchBookmarkMediaBatch(options: {limit?: number; maxBytes?: number} = {}): Promise<MediaFetchManifest> {
   const limit = options.limit ?? 100;
   const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
   const mediaDir = bookmarkMediaDir();
@@ -61,9 +59,7 @@ export async function fetchBookmarkMediaBatch(
   await ensureDir(mediaDir);
 
   const bookmarks = await readJsonLines<BookmarkRecord>(twitterBookmarksCachePath());
-  const candidates = bookmarks
-    .filter((b) => (b.media?.length ?? 0) > 0 || (b.mediaObjects?.length ?? 0) > 0 || b.authorProfileImageUrl)
-    .slice(0, limit);
+  const candidates = bookmarks.filter((b) => (b.media?.length ?? 0) > 0 || (b.mediaObjects?.length ?? 0) > 0 || b.authorProfileImageUrl).slice(0, limit);
   const previous = await loadManifest();
   const priorKeys = new Set((previous?.entries ?? []).map((e) => `${e.bookmarkId}::${e.sourceUrl}`));
   const entries: MediaFetchEntry[] = previous?.entries ? [...previous.entries] : [];
@@ -79,10 +75,11 @@ export async function fetchBookmarkMediaBatch(
     if (bookmark.mediaObjects?.length) {
       for (const mo of bookmark.mediaObjects) {
         if (mo.type === 'video' || mo.type === 'animated_gif') {
-          const mp4s = (mo.variants ?? [])
-            .filter((v) => v.contentType === 'video/mp4' && v.url)
-            .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
-          if (mp4s.length > 0 && mp4s[0].url) { mediaUrls.push(mp4s[0].url); continue; }
+          const mp4s = (mo.variants ?? []).filter((v) => v.contentType === 'video/mp4' && v.url).sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+          if (mp4s.length > 0 && mp4s[0].url) {
+            mediaUrls.push(mp4s[0].url);
+            continue;
+          }
         }
         if (mo.mediaUrl) mediaUrls.push(mo.mediaUrl);
       }
@@ -104,7 +101,7 @@ export async function fetchBookmarkMediaBatch(
       const fetchedAt = new Date().toISOString();
 
       try {
-        const head = await fetch(sourceUrl, { method: 'HEAD' });
+        const head = await fetch(sourceUrl, {method: 'HEAD'});
         const contentLengthHeader = head.headers.get('content-length');
         const contentType = head.headers.get('content-type') ?? undefined;
         const declaredBytes = contentLengthHeader ? Number(contentLengthHeader) : undefined;
@@ -121,7 +118,7 @@ export async function fetchBookmarkMediaBatch(
             bytes: declaredBytes,
             status: 'skipped_too_large',
             reason: `content-length ${declaredBytes} exceeds max ${maxBytes}`,
-            fetchedAt,
+            fetchedAt
           });
           skippedTooLarge += 1;
           continue;
@@ -138,7 +135,7 @@ export async function fetchBookmarkMediaBatch(
             sourceUrl,
             status: 'failed',
             reason: `HTTP ${response.status}`,
-            fetchedAt,
+            fetchedAt
           });
           failed += 1;
           continue;
@@ -157,7 +154,7 @@ export async function fetchBookmarkMediaBatch(
             bytes: buffer.byteLength,
             status: 'skipped_too_large',
             reason: `downloaded size ${buffer.byteLength} exceeds max ${maxBytes}`,
-            fetchedAt,
+            fetchedAt
           });
           skippedTooLarge += 1;
           continue;
@@ -180,7 +177,7 @@ export async function fetchBookmarkMediaBatch(
           contentType: response.headers.get('content-type') ?? contentType ?? undefined,
           bytes: buffer.byteLength,
           status: 'downloaded',
-          fetchedAt,
+          fetchedAt
         });
         downloaded += 1;
       } catch (error) {
@@ -193,7 +190,7 @@ export async function fetchBookmarkMediaBatch(
           sourceUrl,
           status: 'failed',
           reason: error instanceof Error ? error.message : String(error),
-          fetchedAt,
+          fetchedAt
         });
         failed += 1;
       }
@@ -209,7 +206,7 @@ export async function fetchBookmarkMediaBatch(
     downloaded,
     skippedTooLarge,
     failed,
-    entries,
+    entries
   };
 
   await writeJson(manifestPath, manifest);

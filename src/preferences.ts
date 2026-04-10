@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { ensureDataDir, preferencesPath } from './paths.js';
+import {ensureDataDir, preferencesPath} from './paths.js';
 
 export interface Preferences {
   defaultEngine?: string;
@@ -17,6 +17,6 @@ export function savePreferences(prefs: Preferences): void {
   ensureDataDir();
   const filePath = preferencesPath();
   const tmpPath = filePath + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(prefs, null, 2) + '\n', { mode: 0o600 });
+  fs.writeFileSync(tmpPath, JSON.stringify(prefs, null, 2) + '\n', {mode: 0o600});
   fs.renameSync(tmpPath, filePath);
 }

@@ -10,7 +10,7 @@ export function dataDir(): string {
 
 function ensureDirSync(dir: string): void {
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(dir, {recursive: true, mode: 0o700});
   }
 }
 

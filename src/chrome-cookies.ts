@@ -1,10 +1,10 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, unlinkSync, copyFileSync, readFileSync } from 'node:fs';
-import { join, win32 as winPath } from 'node:path';
-import { tmpdir, platform } from 'node:os';
-import { pbkdf2Sync, createDecipheriv, randomUUID } from 'node:crypto';
-import type { BrowserDef } from './browsers.js';
-import { getKeychainEntries } from './browsers.js';
+import {execFileSync, spawnSync} from 'node:child_process';
+import {existsSync, unlinkSync, copyFileSync, readFileSync} from 'node:fs';
+import {join, win32 as winPath} from 'node:path';
+import {tmpdir, platform} from 'node:os';
+import {pbkdf2Sync, createDecipheriv, randomUUID} from 'node:crypto';
+import type {BrowserDef} from './browsers.js';
+import {getKeychainEntries} from './browsers.js';
 
 export interface ChromeCookieResult {
   csrfToken: string;
@@ -18,11 +18,7 @@ function getMacOSKey(browser: BrowserDef): Buffer {
 
   for (const candidate of candidates) {
     try {
-      const password = execFileSync(
-        'security',
-        ['find-generic-password', '-w', '-s', candidate.service, '-a', candidate.account],
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
+      const password = execFileSync('security', ['find-generic-password', '-w', '-s', candidate.service, '-a', candidate.account], {encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']}).trim();
       if (password) {
         return pbkdf2Sync(password, 'saltysalt', 1003, 16, 'sha1');
       }
@@ -31,11 +27,7 @@ function getMacOSKey(browser: BrowserDef): Buffer {
     }
   }
 
-  throw new Error(
-    `Could not read ${browser.displayName} Safe Storage password from macOS Keychain.\n` +
-    'Fix: open the browser profile logged into X, then retry.\n' +
-    'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-  );
+  throw new Error(`Could not read ${browser.displayName} Safe Storage password from macOS Keychain.\n` + 'Fix: open the browser profile logged into X, then retry.\n' + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
 }
 
 // ── Linux Secret Service ─────────────────────────────────────────────────────
@@ -54,82 +46,45 @@ function getLinuxKeys(browser: BrowserDef): LinuxKeys {
     chromium: ['chromium'],
     brave: ['brave'],
     helium: ['chrome'], // Helium typically uses Chrome's keyring entry
-    comet: ['chrome'],
+    comet: ['chrome']
   };
   const apps = appNames[browser.id] ?? ['chrome'];
 
   for (const app of apps) {
     try {
-      const pw = execFileSync(
-        'secret-tool',
-        ['lookup', 'application', app],
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
-      ).trim();
+      const pw = execFileSync('secret-tool', ['lookup', 'application', app], {encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000}).trim();
       if (pw) {
-        return { v10, v11: pbkdf2Sync(pw, 'saltysalt', 1, 16, 'sha1') };
+        return {v10, v11: pbkdf2Sync(pw, 'saltysalt', 1, 16, 'sha1')};
       }
     } catch {
       // secret-tool not available or no entry — try next
     }
   }
 
-  return { v10, v11: null };
+  return {v10, v11: null};
 }
 
 // ── Windows DPAPI ────────────────────────────────────────────────────────────
 
 type WindowsDpapiOutputMode = 'base64' | 'utf8';
 
-const WINDOWS_DPAPI_RUNTIME_HINT =
-  'DPAPI types are unavailable in this PowerShell runtime. Prefer Windows PowerShell (powershell.exe).';
+const WINDOWS_DPAPI_RUNTIME_HINT = 'DPAPI types are unavailable in this PowerShell runtime. Prefer Windows PowerShell (powershell.exe).';
 
-export function windowsPowerShellCandidates(
-  env: NodeJS.ProcessEnv = process.env,
-  pathExists: (path: string) => boolean = existsSync,
-): string[] {
+export function windowsPowerShellCandidates(env: NodeJS.ProcessEnv = process.env, pathExists: (path: string) => boolean = existsSync): string[] {
   const systemRoot = env.SystemRoot || env.WINDIR;
   if (!systemRoot || !winPath.isAbsolute(systemRoot)) {
     return [];
   }
 
-  const candidates = [
-    winPath.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    winPath.join(systemRoot, 'Sysnative', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-  ];
+  const candidates = [winPath.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), winPath.join(systemRoot, 'Sysnative', 'WindowsPowerShell', 'v1.0', 'powershell.exe')];
 
-  return [...new Set(candidates.filter(candidate => pathExists(candidate)))];
+  return [...new Set(candidates.filter((candidate) => pathExists(candidate)))];
 }
 
 export function buildWindowsDpapiScript(outputMode: WindowsDpapiOutputMode): string {
-  const outputLine = outputMode === 'base64'
-    ? '    [System.Console]::WriteLine([System.Convert]::ToBase64String($dec))'
-    : '    [System.Console]::WriteLine([System.Text.Encoding]::UTF8.GetString($dec))';
+  const outputLine = outputMode === 'base64' ? '    [System.Console]::WriteLine([System.Convert]::ToBase64String($dec))' : '    [System.Console]::WriteLine([System.Text.Encoding]::UTF8.GetString($dec))';
 
-  return [
-    "$ErrorActionPreference = 'Stop'",
-    "$assemblies = @('System.Security.Cryptography.ProtectedData', 'System.Security')",
-    '$dpapiReady = $false',
-    'foreach ($assembly in $assemblies) {',
-    '  try { Add-Type -AssemblyName $assembly -ErrorAction Stop | Out-Null } catch {}',
-    '  try {',
-    '    [void][System.Security.Cryptography.ProtectedData]',
-    '    [void][System.Security.Cryptography.DataProtectionScope]',
-    '    $dpapiReady = $true',
-    '    break',
-    '  } catch {}',
-    '}',
-    'if (-not $dpapiReady) {',
-    `  throw '${WINDOWS_DPAPI_RUNTIME_HINT}'`,
-    '}',
-    '$input | ForEach-Object {',
-    '  $line = "$_".Trim()',
-    '  if ($line) {',
-    '    $bytes = [System.Convert]::FromBase64String($line)',
-    '    $dec = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
-    outputLine,
-    '  }',
-    '}',
-  ].join('\n');
+  return ["$ErrorActionPreference = 'Stop'", "$assemblies = @('System.Security.Cryptography.ProtectedData', 'System.Security')", '$dpapiReady = $false', 'foreach ($assembly in $assemblies) {', '  try { Add-Type -AssemblyName $assembly -ErrorAction Stop | Out-Null } catch {}', '  try {', '    [void][System.Security.Cryptography.ProtectedData]', '    [void][System.Security.Cryptography.DataProtectionScope]', '    $dpapiReady = $true', '    break', '  } catch {}', '}', 'if (-not $dpapiReady) {', `  throw '${WINDOWS_DPAPI_RUNTIME_HINT}'`, '}', '$input | ForEach-Object {', '  $line = "$_".Trim()', '  if ($line) {', '    $bytes = [System.Convert]::FromBase64String($line)', '    $dec = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)', outputLine, '  }', '}'].join('\n');
 }
 
 interface WindowsDpapiOptions {
@@ -140,11 +95,7 @@ interface WindowsDpapiOptions {
   timeoutMs: number;
 }
 
-export function runWindowsDpapi(
-  encryptedValue: Buffer,
-  outputMode: WindowsDpapiOutputMode,
-  options: WindowsDpapiOptions,
-): string {
+export function runWindowsDpapi(encryptedValue: Buffer, outputMode: WindowsDpapiOutputMode, options: WindowsDpapiOptions): string {
   const spawn = options.spawn ?? spawnSync;
   const script = buildWindowsDpapiScript(outputMode);
   const commands = windowsPowerShellCandidates(options.env, options.pathExists);
@@ -152,17 +103,13 @@ export function runWindowsDpapi(
   let lastProblem = '';
 
   for (const command of commands) {
-    const result = spawn(
-      command,
-      ['-NonInteractive', '-NoProfile', '-Command', script],
-      {
-        input: encryptedValue.toString('base64'),
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: options.timeoutMs,
-        windowsHide: true,
-      }
-    );
+    const result = spawn(command, ['-NonInteractive', '-NoProfile', '-Command', script], {
+      input: encryptedValue.toString('base64'),
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: options.timeoutMs,
+      windowsHide: true
+    });
 
     const out = typeof result.stdout === 'string' ? result.stdout.trim() : '';
     const err = typeof result.stderr === 'string' ? result.stderr.trim() : '';
@@ -185,30 +132,16 @@ export function runWindowsDpapi(
   }
 
   if (!sawRuntime) {
-    throw new Error(
-      `${options.failureLabel}\n` +
-      'Could not find a trusted Windows PowerShell binary for DPAPI decryption.\n' +
-      'Expected Windows PowerShell under %SystemRoot%\\System32 or %SystemRoot%\\Sysnative.\n' +
-      'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`${options.failureLabel}\n` + 'Could not find a trusted Windows PowerShell binary for DPAPI decryption.\n' + 'Expected Windows PowerShell under %SystemRoot%\\System32 or %SystemRoot%\\Sysnative.\n' + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
-  throw new Error(
-    `${options.failureLabel}\n` +
-    (lastProblem ? `${lastProblem}\n` : '') +
-    'Try running as the same Windows user that owns the browser profile.\n' +
-    'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-  );
+  throw new Error(`${options.failureLabel}\n` + (lastProblem ? `${lastProblem}\n` : '') + 'Try running as the same Windows user that owns the browser profile.\n' + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
 }
 
 function getWindowsKey(chromeUserDataDir: string, browser: BrowserDef): Buffer {
   const localStatePath = join(chromeUserDataDir, 'Local State');
   if (!existsSync(localStatePath)) {
-    throw new Error(
-      `${browser.displayName} "Local State" not found at: ${localStatePath}\n` +
-      'Make sure the browser is installed and has been opened at least once.\n' +
-      'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`${browser.displayName} "Local State" not found at: ${localStatePath}\n` + 'Make sure the browser is installed and has been opened at least once.\n' + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
   let localState: any;
@@ -220,10 +153,7 @@ function getWindowsKey(chromeUserDataDir: string, browser: BrowserDef): Buffer {
 
   const encryptedKeyB64: string | undefined = localState?.os_crypt?.encrypted_key;
   if (!encryptedKeyB64) {
-    throw new Error(
-      'Could not find os_crypt.encrypted_key in Local State.\n' +
-      'Pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error('Could not find os_crypt.encrypted_key in Local State.\n' + 'Pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
   const encryptedKeyWithPrefix = Buffer.from(encryptedKeyB64, 'base64');
@@ -234,7 +164,7 @@ function getWindowsKey(chromeUserDataDir: string, browser: BrowserDef): Buffer {
 
   const out = runWindowsDpapi(encryptedKey, 'base64', {
     failureLabel: 'Could not decrypt encryption key via DPAPI.',
-    timeoutMs: 10000,
+    timeoutMs: 10000
   });
 
   return Buffer.from(out, 'base64');
@@ -259,7 +189,7 @@ function decryptWindowsCookie(encryptedValue: Buffer, key: Buffer): string {
   try {
     const out = runWindowsDpapi(encryptedValue, 'utf8', {
       failureLabel: 'Could not decrypt Windows cookie via DPAPI.',
-      timeoutMs: 5000,
+      timeoutMs: 5000
     });
     if (out) return out;
   } catch {
@@ -274,37 +204,15 @@ function decryptWindowsCookie(encryptedValue: Buffer, key: Buffer): string {
 function sanitizeCookieValue(name: string, value: string, browser: BrowserDef): string {
   const cleaned = value.replace(/\0+$/g, '').trim();
   if (!cleaned) {
-    throw new Error(
-      `Cookie ${name} was empty after decryption.\n\n` +
-      'This usually happens when the browser is open. Try:\n' +
-      `  1. Close ${browser.displayName} completely and run ft sync again\n` +
-      '  2. Try a different profile:\n' +
-      '     ft sync --chrome-profile-directory "Profile 1"\n' +
-      '  3. Or pass cookies manually:\n' +
-      '     ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`Cookie ${name} was empty after decryption.\n\n` + 'This usually happens when the browser is open. Try:\n' + `  1. Close ${browser.displayName} completely and run ft sync again\n` + '  2. Try a different profile:\n' + '     ft sync --chrome-profile-directory "Profile 1"\n' + '  3. Or pass cookies manually:\n' + '     ft sync --cookies <ct0> <auth_token>');
   }
   if (!/^[\x21-\x7E]+$/.test(cleaned)) {
-    throw new Error(
-      `Could not decrypt the ${name} cookie.\n\n` +
-      'This usually happens when the browser is open or the wrong profile is selected.\n\n' +
-      'Try:\n' +
-      `  1. Close ${browser.displayName} completely and run ft sync again\n` +
-      '  2. Try a different profile:\n' +
-      '     ft sync --chrome-profile-directory "Profile 1"\n' +
-      '  3. Or pass cookies manually:\n' +
-      '     ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`Could not decrypt the ${name} cookie.\n\n` + 'This usually happens when the browser is open or the wrong profile is selected.\n\n' + 'Try:\n' + `  1. Close ${browser.displayName} completely and run ft sync again\n` + '  2. Try a different profile:\n' + '     ft sync --chrome-profile-directory "Profile 1"\n' + '  3. Or pass cookies manually:\n' + '     ft sync --cookies <ct0> <auth_token>');
   }
   return cleaned;
 }
 
-export function decryptCookieValue(
-  encryptedValue: Buffer,
-  key: Buffer,
-  dbVersion = 0,
-  v11Key?: Buffer | null,
-): string {
+export function decryptCookieValue(encryptedValue: Buffer, key: Buffer, dbVersion = 0, v11Key?: Buffer | null): string {
   if (encryptedValue.length === 0) return '';
 
   const isV10 = encryptedValue[0] === 0x76 && encryptedValue[1] === 0x31 && encryptedValue[2] === 0x30;
@@ -312,14 +220,7 @@ export function decryptCookieValue(
 
   if (isV10 || isV11) {
     if (isV11 && v11Key === null) {
-      throw new Error(
-        'This cookie uses a GNOME keyring key (v11), but the keyring\n' +
-        'password could not be retrieved.\n\n' +
-        'Fix:\n' +
-        '  1. Install libsecret-tools:  sudo apt-get install libsecret-tools\n' +
-        '  2. Check the entry exists:   secret-tool lookup application chrome\n' +
-        '  3. Or pass cookies manually: ft sync --cookies <ct0> <auth_token>'
-      );
+      throw new Error('This cookie uses a GNOME keyring key (v11), but the keyring\n' + 'password could not be retrieved.\n\n' + 'Fix:\n' + '  1. Install libsecret-tools:  sudo apt-get install libsecret-tools\n' + '  2. Check the entry exists:   secret-tool lookup application chrome\n' + '  3. Or pass cookies manually: ft sync --cookies <ct0> <auth_token>');
     }
 
     const decryptKey = isV11 && v11Key ? v11Key : key;
@@ -352,7 +253,9 @@ interface RawCookie {
 function queryDbVersion(dbPath: string): number {
   const tryQuery = (p: string) =>
     execFileSync('sqlite3', [p, "SELECT value FROM meta WHERE key='version';"], {
-      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000
     }).trim();
 
   try {
@@ -365,7 +268,9 @@ function queryDbVersion(dbPath: string): number {
     } catch {
       return 0;
     } finally {
-      try { unlinkSync(tmpDb); } catch {}
+      try {
+        unlinkSync(tmpDb);
+      } catch {}
     }
   }
 }
@@ -377,25 +282,20 @@ function resolveCookieDbPath(chromeUserDataDir: string, profileDirectory: string
   return join(chromeUserDataDir, profileDirectory, 'Cookies');
 }
 
-function queryCookies(dbPath: string, domain: string, names: string[], browser: BrowserDef): { cookies: RawCookie[]; dbVersion: number } {
+function queryCookies(dbPath: string, domain: string, names: string[], browser: BrowserDef): {cookies: RawCookie[]; dbVersion: number} {
   if (!existsSync(dbPath)) {
-    throw new Error(
-      `${browser.displayName} Cookies database not found at: ${dbPath}\n` +
-      'Fix: Make sure the browser is installed and has been opened at least once.\n' +
-      'If you use a non-default profile, pass --chrome-profile-directory <name>.\n' +
-      'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`${browser.displayName} Cookies database not found at: ${dbPath}\n` + 'Fix: Make sure the browser is installed and has been opened at least once.\n' + 'If you use a non-default profile, pass --chrome-profile-directory <name>.\n' + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
   const safeDomain = domain.replace(/'/g, "''");
-  const nameList = names.map(n => `'${n.replace(/'/g, "''")}'`).join(',');
+  const nameList = names.map((n) => `'${n.replace(/'/g, "''")}'`).join(',');
   const sql = `SELECT name, host_key, hex(encrypted_value) as encrypted_value_hex, value FROM cookies WHERE host_key LIKE '%${safeDomain}' AND name IN (${nameList});`;
 
   const tryQuery = (path: string): string =>
     execFileSync('sqlite3', ['-json', path, sql], {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000,
+      timeout: 10000
     }).trim();
 
   let output: string;
@@ -407,39 +307,31 @@ function queryCookies(dbPath: string, domain: string, names: string[], browser: 
       copyFileSync(dbPath, tmpDb);
       output = tryQuery(tmpDb);
     } catch (e2: any) {
-      throw new Error(
-        `Could not read ${browser.displayName} Cookies database.\n` +
-        `Path: ${dbPath}\n` +
-        `Error: ${e2.message}\n` +
-        `Fix: If ${browser.displayName} is open, close it and retry.\n` +
-        'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-      );
+      throw new Error(`Could not read ${browser.displayName} Cookies database.\n` + `Path: ${dbPath}\n` + `Error: ${e2.message}\n` + `Fix: If ${browser.displayName} is open, close it and retry.\n` + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
     } finally {
-      try { unlinkSync(tmpDb); } catch {}
+      try {
+        unlinkSync(tmpDb);
+      } catch {}
     }
   }
 
   const dbVersion = queryDbVersion(dbPath);
 
-  if (!output || output === '[]') return { cookies: [], dbVersion };
+  if (!output || output === '[]') return {cookies: [], dbVersion};
   try {
-    return { cookies: JSON.parse(output), dbVersion };
+    return {cookies: JSON.parse(output), dbVersion};
   } catch {
-    return { cookies: [], dbVersion };
+    return {cookies: [], dbVersion};
   }
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
-export function extractChromeXCookies(
-  chromeUserDataDir: string,
-  profileDirectory = 'Default',
-  browser: BrowserDef | undefined = undefined
-): ChromeCookieResult {
+export function extractChromeXCookies(chromeUserDataDir: string, profileDirectory = 'Default', browser: BrowserDef | undefined = undefined): ChromeCookieResult {
   const os = platform();
 
   // Default browser for error messages if none provided
-  const br = browser ?? { id: 'chrome', displayName: 'Google Chrome', cookieBackend: 'chromium' as const, keychainEntries: [] };
+  const br = browser ?? {id: 'chrome', displayName: 'Google Chrome', cookieBackend: 'chromium' as const, keychainEntries: []};
 
   const dbPath = resolveCookieDbPath(chromeUserDataDir, profileDirectory);
 
@@ -457,10 +349,7 @@ export function extractChromeXCookies(
     key = getWindowsKey(chromeUserDataDir, br);
     isWindows = true;
   } else {
-    throw new Error(
-      `Automatic cookie extraction is not supported on ${os}.\n` +
-      'Pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`Automatic cookie extraction is not supported on ${os}.\n` + 'Pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
   let result = queryCookies(dbPath, '.x.com', ['ct0', 'auth_token'], br);
@@ -487,19 +376,7 @@ export function extractChromeXCookies(
   const authToken = decrypted.get('auth_token');
 
   if (!ct0) {
-    throw new Error(
-      `No ct0 CSRF cookie found for x.com in ${br.displayName}.\n` +
-      'This means you are not logged into X in this browser.\n\n' +
-      'Fix:\n' +
-      `  1. Open ${br.displayName}\n` +
-      '  2. Go to https://x.com and log in\n' +
-      '  3. Re-run this command\n\n' +
-      (profileDirectory !== 'Default'
-        ? `Using profile: "${profileDirectory}"\n`
-        : 'Using the Default profile. If your X login is in a different profile,\n' +
-          'pass --chrome-profile-directory <name> (e.g., "Profile 1").\n') +
-      '\nOr pass cookies manually:  ft sync --cookies <ct0> <auth_token>'
-    );
+    throw new Error(`No ct0 CSRF cookie found for x.com in ${br.displayName}.\n` + 'This means you are not logged into X in this browser.\n\n' + 'Fix:\n' + `  1. Open ${br.displayName}\n` + '  2. Go to https://x.com and log in\n' + '  3. Re-run this command\n\n' + (profileDirectory !== 'Default' ? `Using profile: "${profileDirectory}"\n` : 'Using the Default profile. If your X login is in a different profile,\n' + 'pass --chrome-profile-directory <name> (e.g., "Profile 1").\n') + '\nOr pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
   const cleanCt0 = sanitizeCookieValue('ct0', ct0, br);
@@ -507,5 +384,5 @@ export function extractChromeXCookies(
   if (authToken) cookieParts.push(`auth_token=${sanitizeCookieValue('auth_token', authToken, br)}`);
   const cookieHeader = cookieParts.join('; ');
 
-  return { csrfToken: cleanCt0, cookieHeader };
+  return {csrfToken: cleanCt0, cookieHeader};
 }

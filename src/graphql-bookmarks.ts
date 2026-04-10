@@ -1,15 +1,14 @@
-import { ensureDir, readJsonLines, writeJsonLines, readJson, writeJson, pathExists } from './fs.js';
-import { ensureDataDir, twitterBookmarksCachePath, twitterBookmarksMetaPath, twitterBackfillStatePath } from './paths.js';
-import { loadChromeSessionConfig } from './config.js';
-import { extractChromeXCookies } from './chrome-cookies.js';
-import { extractFirefoxXCookies } from './firefox-cookies.js';
-import type { BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord, QuotedTweetSnapshot } from './types.js';
-import { exportBookmarksForSyncSeed, updateQuotedTweets, updateBookmarkText } from './bookmarks-db.js';
+import {ensureDir, readJsonLines, writeJsonLines, readJson, writeJson, pathExists} from './fs.js';
+import {ensureDataDir, twitterBookmarksCachePath, twitterBookmarksMetaPath, twitterBackfillStatePath} from './paths.js';
+import {loadChromeSessionConfig} from './config.js';
+import {extractChromeXCookies} from './chrome-cookies.js';
+import {extractFirefoxXCookies} from './firefox-cookies.js';
+import type {BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord, QuotedTweetSnapshot} from './types.js';
+import {exportBookmarksForSyncSeed, updateQuotedTweets, updateBookmarkText} from './bookmarks-db.js';
 
 const CHROME_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
-const X_PUBLIC_BEARER =
-  'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
+const X_PUBLIC_BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 
 const BOOKMARKS_QUERY_ID = 'Z9GWmP0kP2dajyckAaDUBw';
 const BOOKMARKS_OPERATION = 'Bookmarks';
@@ -35,7 +34,7 @@ const GRAPHQL_FEATURES = {
   longform_notetweets_inline_media_enabled: true,
   responsive_web_enhance_cards_enabled: false,
   tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
-  responsive_web_media_download_video_enabled: false,
+  responsive_web_media_download_video_enabled: false
 };
 
 export interface SyncOptions {
@@ -113,30 +112,30 @@ const MAX_FUTURE_BOOKMARK_SKEW_MS = 5 * 60_000;
 export function sanitizeBookmarkedAt(record: BookmarkRecord): BookmarkRecord {
   const bookmarkedAtMs = parseDateMs(record.bookmarkedAt);
   if (bookmarkedAtMs == null) {
-    return record.bookmarkedAt == null ? record : { ...record, bookmarkedAt: null };
+    return record.bookmarkedAt == null ? record : {...record, bookmarkedAt: null};
   }
 
   const postedAtMs = parseDateMs(record.postedAt);
   if (postedAtMs != null && bookmarkedAtMs < postedAtMs) {
-    return { ...record, bookmarkedAt: null };
+    return {...record, bookmarkedAt: null};
   }
 
   const syncedAtMs = parseDateMs(record.syncedAt);
   if (syncedAtMs != null && bookmarkedAtMs > syncedAtMs + MAX_FUTURE_BOOKMARK_SKEW_MS) {
-    return { ...record, bookmarkedAt: null };
+    return {...record, bookmarkedAt: null};
   }
 
   return record;
 }
 
-function sanitizeRecords(records: BookmarkRecord[]): { records: BookmarkRecord[]; repaired: number } {
+function sanitizeRecords(records: BookmarkRecord[]): {records: BookmarkRecord[]; repaired: number} {
   let repaired = 0;
   const sanitized = records.map((record) => {
     const next = sanitizeBookmarkedAt(record);
     if (next.bookmarkedAt !== record.bookmarkedAt) repaired += 1;
     return next;
   });
-  return { records: sanitized, repaired };
+  return {records: sanitized, repaired};
 }
 
 function parseBookmarkTimestamp(record: BookmarkRecord): number | null {
@@ -166,7 +165,7 @@ function compareBookmarkChronology(a: BookmarkRecord, b: BookmarkRecord): number
   return aStamp.localeCompare(bStamp);
 }
 
-async function loadExistingBookmarks(): Promise<{ records: BookmarkRecord[]; repaired: number }> {
+async function loadExistingBookmarks(): Promise<{records: BookmarkRecord[]; repaired: number}> {
   const cachePath = twitterBookmarksCachePath();
   const existing = sanitizeRecords(await readJsonLines<BookmarkRecord>(cachePath));
   if (existing.records.length > 0) return existing;
@@ -174,16 +173,16 @@ async function loadExistingBookmarks(): Promise<{ records: BookmarkRecord[]; rep
   try {
     return sanitizeRecords(await exportBookmarksForSyncSeed());
   } catch {
-    return { records: [], repaired: 0 };
+    return {records: [], repaired: 0};
   }
 }
 
 function buildUrl(cursor?: string, count = 20): string {
-  const variables: Record<string, unknown> = { count };
+  const variables: Record<string, unknown> = {count};
   if (cursor) variables.cursor = cursor;
   const params = new URLSearchParams({
     variables: JSON.stringify(variables),
-    features: JSON.stringify(GRAPHQL_FEATURES),
+    features: JSON.stringify(GRAPHQL_FEATURES)
   });
   return `https://x.com/i/api/graphql/${BOOKMARKS_QUERY_ID}/${BOOKMARKS_OPERATION}?${params}`;
 }
@@ -196,7 +195,7 @@ function buildHeaders(csrfToken: string, cookieHeader?: string): Record<string, 
     'x-twitter-active-user': 'yes',
     'content-type': 'application/json',
     'user-agent': CHROME_UA,
-    cookie: cookieHeader ?? `ct0=${csrfToken}`,
+    cookie: cookieHeader ?? `ct0=${csrfToken}`
   };
 }
 
@@ -216,10 +215,7 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
   const userResult = tweet?.core?.user_results?.result;
   const authorHandle = userResult?.core?.screen_name ?? userResult?.legacy?.screen_name;
   const authorName = userResult?.core?.name ?? userResult?.legacy?.name;
-  const authorProfileImageUrl =
-    userResult?.avatar?.image_url ??
-    userResult?.legacy?.profile_image_url_https ??
-    userResult?.legacy?.profile_image_url;
+  const authorProfileImageUrl = userResult?.avatar?.image_url ?? userResult?.legacy?.profile_image_url_https ?? userResult?.legacy?.profile_image_url;
 
   const author = userResult
     ? {
@@ -231,18 +227,13 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
         followerCount: userResult?.legacy?.followers_count,
         followingCount: userResult?.legacy?.friends_count,
         isVerified: Boolean(userResult?.is_blue_verified ?? userResult?.legacy?.verified),
-        location:
-          typeof userResult?.location === 'object'
-            ? userResult.location.location
-            : userResult?.legacy?.location,
-        snapshotAt: now,
+        location: typeof userResult?.location === 'object' ? userResult.location.location : userResult?.legacy?.location,
+        snapshotAt: now
       }
     : undefined;
 
   const mediaEntities = legacy?.extended_entities?.media ?? legacy?.entities?.media ?? [];
-  const media: string[] = mediaEntities
-    .map((m: any) => m.media_url_https ?? m.media_url)
-    .filter(Boolean);
+  const media: string[] = mediaEntities.map((m: any) => m.media_url_https ?? m.media_url).filter(Boolean);
   const mediaObjects = mediaEntities.map((m: any) => ({
     type: m.type,
     url: m.media_url_https ?? m.media_url,
@@ -250,17 +241,11 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
     width: m.original_info?.width,
     height: m.original_info?.height,
     altText: m.ext_alt_text,
-    videoVariants: Array.isArray(m.video_info?.variants)
-      ? m.video_info.variants
-          .filter((v: any) => v.content_type === 'video/mp4')
-          .map((v: any) => ({ bitrate: v.bitrate, url: v.url }))
-      : undefined,
+    videoVariants: Array.isArray(m.video_info?.variants) ? m.video_info.variants.filter((v: any) => v.content_type === 'video/mp4').map((v: any) => ({bitrate: v.bitrate, url: v.url})) : undefined
   }));
 
   const urlEntities = legacy?.entities?.urls ?? [];
-  const links: string[] = urlEntities
-    .map((u: any) => u.expanded_url)
-    .filter((u: string | undefined) => u && !u.includes('t.co'));
+  const links: string[] = urlEntities.map((u: any) => u.expanded_url).filter((u: string | undefined) => u && !u.includes('t.co'));
 
   // Extract quoted tweet if present
   const quotedResult = tweet?.quoted_status_result?.result;
@@ -278,8 +263,7 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
         text: qtLegacy.full_text ?? qtLegacy.text ?? '',
         authorHandle: qtHandle,
         authorName: qtUser?.core?.name ?? qtUser?.legacy?.name,
-        authorProfileImageUrl:
-          qtUser?.avatar?.image_url ?? qtUser?.legacy?.profile_image_url_https,
+        authorProfileImageUrl: qtUser?.avatar?.image_url ?? qtUser?.legacy?.profile_image_url_https,
         postedAt: qtLegacy.created_at ?? null,
         media: qtMediaEntities.map((m: any) => m.media_url_https ?? m.media_url).filter(Boolean),
         mediaObjects: qtMediaEntities.map((m: any) => ({
@@ -287,9 +271,9 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
           url: m.media_url_https ?? m.media_url,
           expandedUrl: m.expanded_url,
           width: m.original_info?.width,
-          height: m.original_info?.height,
+          height: m.original_info?.height
         })),
-        url: `https://x.com/${qtHandle ?? '_'}/status/${qtId}`,
+        url: `https://x.com/${qtHandle ?? '_'}/status/${qtId}`
       };
     }
   }
@@ -324,13 +308,13 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
       replyCount: legacy.reply_count,
       quoteCount: legacy.quote_count,
       bookmarkCount: legacy.bookmark_count,
-      viewCount: tweet?.views?.count ? Number(tweet.views.count) : undefined,
+      viewCount: tweet?.views?.count ? Number(tweet.views.count) : undefined
     },
     media,
     mediaObjects,
     links,
     tags: [],
-    ingestedVia: 'graphql',
+    ingestedVia: 'graphql'
   };
 }
 
@@ -379,14 +363,14 @@ export function parseBookmarksResponse(json: any, now?: string): PageResult {
     }
   }
 
-  return { records, nextCursor };
+  return {records, nextCursor};
 }
 
 async function fetchPageWithRetry(csrfToken: string, cursor?: string, cookieHeader?: string, pageSize?: number): Promise<PageResult> {
   let lastError: Error | undefined;
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const response = await fetch(buildUrl(cursor, pageSize), { headers: buildHeaders(csrfToken, cookieHeader) });
+    const response = await fetch(buildUrl(cursor, pageSize), {headers: buildHeaders(csrfToken, cookieHeader)});
 
     if (response.status === 429) {
       const waitSec = Math.min(15 * Math.pow(2, attempt), 120);
@@ -403,13 +387,7 @@ async function fetchPageWithRetry(csrfToken: string, cursor?: string, cookieHead
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
-        `GraphQL Bookmarks API returned ${response.status}.\n` +
-          `Response: ${text.slice(0, 300)}\n\n` +
-          (response.status === 401 || response.status === 403
-            ? 'Fix: Your X session may have expired. Open your browser, go to https://x.com, and make sure you are logged in. Then retry.'
-            : 'This may be a temporary issue. Try again in a few minutes.')
-      );
+      throw new Error(`GraphQL Bookmarks API returned ${response.status}.\n` + `Response: ${text.slice(0, 300)}\n\n` + (response.status === 401 || response.status === 403 ? 'Fix: Your X session may have expired. Open your browser, go to https://x.com, and make sure you are logged in. Then retry.' : 'This may be a temporary issue. Try again in a few minutes.'));
     }
 
     const json = await response.json();
@@ -432,15 +410,10 @@ export function scoreRecord(record: BookmarkRecord): number {
 
 export function mergeBookmarkRecord(existing: BookmarkRecord | undefined, incoming: BookmarkRecord): BookmarkRecord {
   if (!existing) return incoming;
-  return scoreRecord(incoming) >= scoreRecord(existing)
-    ? { ...existing, ...incoming }
-    : { ...incoming, ...existing };
+  return scoreRecord(incoming) >= scoreRecord(existing) ? {...existing, ...incoming} : {...incoming, ...existing};
 }
 
-export function mergeRecords(
-  existing: BookmarkRecord[],
-  incoming: BookmarkRecord[]
-): { merged: BookmarkRecord[]; added: number } {
+export function mergeRecords(existing: BookmarkRecord[], incoming: BookmarkRecord[]): {merged: BookmarkRecord[]; added: number} {
   const byId = new Map(existing.map((r) => [r.id, r]));
   let added = 0;
   for (const record of incoming) {
@@ -450,13 +423,10 @@ export function mergeRecords(
   }
   const merged = Array.from(byId.values());
   merged.sort((a, b) => compareBookmarkChronology(b, a));
-  return { merged, added };
+  return {merged, added};
 }
 
-function updateState(
-  prev: BookmarkBackfillState,
-  input: { added: number; seenIds: string[]; stopReason: string; lastRunAt?: string; lastCursor?: string }
-): BookmarkBackfillState {
+function updateState(prev: BookmarkBackfillState, input: {added: number; seenIds: string[]; stopReason: string; lastRunAt?: string; lastCursor?: string}): BookmarkBackfillState {
   return {
     provider: 'twitter',
     lastRunAt: input.lastRunAt ?? new Date().toISOString(),
@@ -465,27 +435,15 @@ function updateState(
     lastAdded: input.added,
     lastSeenIds: input.seenIds.slice(-20),
     stopReason: input.stopReason,
-    lastCursor: input.lastCursor,
+    lastCursor: input.lastCursor
   };
 }
 
 export function formatSyncResult(result: SyncResult): string {
-  return [
-    'Sync complete.',
-    `- bookmarks added: ${result.added}`,
-    `- bookmark dates repaired: ${result.bookmarkedAtRepaired}`,
-    `- total bookmarks: ${result.totalBookmarks}`,
-    `- missing reliable bookmark dates: ${result.bookmarkedAtMissing}`,
-    `- pages fetched: ${result.pages}`,
-    `- stop reason: ${result.stopReason}`,
-    `- cache: ${result.cachePath}`,
-    `- state: ${result.statePath}`,
-  ].join('\n');
+  return ['Sync complete.', `- bookmarks added: ${result.added}`, `- bookmark dates repaired: ${result.bookmarkedAtRepaired}`, `- total bookmarks: ${result.totalBookmarks}`, `- missing reliable bookmark dates: ${result.bookmarkedAtMissing}`, `- pages fetched: ${result.pages}`, `- stop reason: ${result.stopReason}`, `- cache: ${result.cachePath}`, `- state: ${result.statePath}`].join('\n');
 }
 
-export async function syncBookmarksGraphQL(
-  options: SyncOptions = {}
-): Promise<SyncResult> {
+export async function syncBookmarksGraphQL(options: SyncOptions = {}): Promise<SyncResult> {
   const incremental = options.incremental ?? true;
   const maxPages = options.maxPages ?? Infinity;
   const delayMs = options.delayMs ?? 600;
@@ -501,7 +459,7 @@ export async function syncBookmarksGraphQL(
     csrfToken = options.csrfToken;
     cookieHeader = options.cookieHeader;
   } else {
-    const config = loadChromeSessionConfig({ browserId: options.browser });
+    const config = loadChromeSessionConfig({browserId: options.browser});
 
     if (config.browser.cookieBackend === 'firefox') {
       const cookies = extractFirefoxXCookies(options.firefoxProfileDir);
@@ -523,15 +481,9 @@ export async function syncBookmarksGraphQL(
   const loaded = await loadExistingBookmarks();
   let existing = loaded.records;
   const bookmarkedAtRepaired = loaded.repaired;
-  const newestKnownId = incremental
-    ? existing.slice().sort((a, b) => compareBookmarkChronology(b, a))[0]?.id
-    : undefined;
-  const previousMeta = (await pathExists(metaPath))
-    ? await readJson<BookmarkCacheMeta>(metaPath)
-    : undefined;
-  const prevState: BookmarkBackfillState = (await pathExists(statePath))
-    ? await readJson<BookmarkBackfillState>(statePath)
-    : { provider: 'twitter', totalRuns: 0, totalAdded: 0, lastAdded: 0, lastSeenIds: [] };
+  const newestKnownId = incremental ? existing.slice().sort((a, b) => compareBookmarkChronology(b, a))[0]?.id : undefined;
+  const previousMeta = (await pathExists(metaPath)) ? await readJson<BookmarkCacheMeta>(metaPath) : undefined;
+  const prevState: BookmarkBackfillState = (await pathExists(statePath)) ? await readJson<BookmarkBackfillState>(statePath) : {provider: 'twitter', totalRuns: 0, totalAdded: 0, lastAdded: 0, lastSeenIds: []};
 
   const started = Date.now();
   let page = 0;
@@ -555,7 +507,7 @@ export async function syncBookmarksGraphQL(
       break;
     }
 
-    const { merged, added } = mergeRecords(existing, result.records);
+    const {merged, added} = mergeRecords(existing, result.records);
     existing = merged;
     totalAdded += added;
     result.records.forEach((r) => allSeenIds.push(r.id));
@@ -568,7 +520,7 @@ export async function syncBookmarksGraphQL(
       totalFetched: allSeenIds.length,
       newAdded: totalAdded,
       running: true,
-      done: false,
+      done: false
     });
 
     // Update cursor before stop checks so auto-continue has the right position
@@ -604,12 +556,7 @@ export async function syncBookmarksGraphQL(
   // find bookmarks the old 20-per-page × 500-page cap missed.
   const OLD_CAP_THRESHOLD = 9_500;
   const terminalStops = new Set(['end of bookmarks']);
-  const shouldAutoContinue =
-    incremental &&
-    !options.resumeCursor &&
-    existing.length >= OLD_CAP_THRESHOLD &&
-    !terminalStops.has(stopReason) &&
-    cursor != null;
+  const shouldAutoContinue = incremental && !options.resumeCursor && existing.length >= OLD_CAP_THRESHOLD && !terminalStops.has(stopReason) && cursor != null;
 
   if (shouldAutoContinue) {
     // Use the first page's actual item count to estimate how many pages
@@ -626,7 +573,7 @@ export async function syncBookmarksGraphQL(
       newAdded: totalAdded,
       running: true,
       done: false,
-      stopReason: `scanning past ${existing.length.toLocaleString()} existing bookmarks (~${estimatedScanPages} pages)...`,
+      stopReason: `scanning past ${existing.length.toLocaleString()} existing bookmarks (~${estimatedScanPages} pages)...`
     });
 
     // Continue paginating with no stale-page or caught-up limits
@@ -644,7 +591,7 @@ export async function syncBookmarksGraphQL(
         break;
       }
 
-      const { merged, added } = mergeRecords(existing, result.records);
+      const {merged, added} = mergeRecords(existing, result.records);
       existing = merged;
       totalAdded += added;
       continueAdded += added;
@@ -658,9 +605,10 @@ export async function syncBookmarksGraphQL(
         newAdded: totalAdded,
         running: true,
         done: false,
-        stopReason: continueAdded > 0
-          ? undefined // found new bookmarks — normal progress display
-          : `scanning past existing bookmarks (${scanProgress}/~${estimatedScanPages})...`,
+        stopReason:
+          continueAdded > 0
+            ? undefined // found new bookmarks — normal progress display
+            : `scanning past existing bookmarks (${scanProgress}/~${estimatedScanPages})...`
       });
 
       if (!cursor) {
@@ -686,19 +634,22 @@ export async function syncBookmarksGraphQL(
     schemaVersion: 1,
     lastFullSyncAt: incremental ? previousMeta?.lastFullSyncAt : syncedAt,
     lastIncrementalSyncAt: incremental ? syncedAt : previousMeta?.lastIncrementalSyncAt,
-    totalBookmarks: existing.length,
+    totalBookmarks: existing.length
   } satisfies BookmarkCacheMeta);
   // Save cursor for resumption if sync stopped before reaching the end
   const terminalReasons = new Set(['end of bookmarks', 'caught up to newest stored bookmark']);
   const savedCursor = terminalReasons.has(stopReason) ? undefined : cursor;
 
-  await writeJson(statePath, updateState(prevState, {
-    added: totalAdded,
-    seenIds: allSeenIds.slice(-20),
-    stopReason,
-    lastRunAt: syncedAt,
-    lastCursor: savedCursor,
-  }));
+  await writeJson(
+    statePath,
+    updateState(prevState, {
+      added: totalAdded,
+      seenIds: allSeenIds.slice(-20),
+      stopReason,
+      lastRunAt: syncedAt,
+      lastCursor: savedCursor
+    })
+  );
 
   options.onProgress?.({
     page,
@@ -706,7 +657,7 @@ export async function syncBookmarksGraphQL(
     newAdded: totalAdded,
     running: false,
     done: true,
-    stopReason,
+    stopReason
   });
 
   return {
@@ -717,7 +668,7 @@ export async function syncBookmarksGraphQL(
     pages: page,
     stopReason,
     cachePath,
-    statePath,
+    statePath
   };
 }
 
@@ -735,13 +686,13 @@ async function fetchTweetViaSyndication(tweetId: string): Promise<SyndicationRes
   for (let attempt = 0; attempt < 4; attempt++) {
     const response = await fetch(`${SYNDICATION_URL}?id=${tweetId}&token=x`, {
       headers: {
-        'user-agent': CHROME_UA,
-      },
+        'user-agent': CHROME_UA
+      }
     });
 
     if (response.ok) {
-      const data = await response.json() as any;
-      if (!data?.text) return { snapshot: null, status: 'empty' };
+      const data = (await response.json()) as any;
+      if (!data?.text) return {snapshot: null, status: 'empty'};
       const handle = data.user?.screen_name;
       const mediaEntities: any[] = data.mediaDetails ?? [];
       return {
@@ -758,10 +709,10 @@ async function fetchTweetViaSyndication(tweetId: string): Promise<SyndicationRes
             type: m.type,
             url: m.media_url_https ?? m.media_url,
             width: m.original_info?.width,
-            height: m.original_info?.height,
+            height: m.original_info?.height
           })),
-          url: `https://x.com/${handle ?? '_'}/status/${data.id_str ?? tweetId}`,
-        },
+          url: `https://x.com/${handle ?? '_'}/status/${data.id_str ?? tweetId}`
+        }
       };
     }
 
@@ -774,10 +725,10 @@ async function fetchTweetViaSyndication(tweetId: string): Promise<SyndicationRes
       continue;
     }
     // 404/403 — tweet unavailable, don't retry
-    const status = response.status === 404 ? 'not_found' as const : 'forbidden' as const;
-    return { snapshot: null, status, httpStatus: response.status };
+    const status = response.status === 404 ? ('not_found' as const) : ('forbidden' as const);
+    return {snapshot: null, status, httpStatus: response.status};
   }
-  return { snapshot: null, status: 'rate_limited' };
+  return {snapshot: null, status: 'rate_limited'};
 }
 
 // Text >= 275 chars may be truncated by Twitter's legacy.full_text limit
@@ -807,10 +758,7 @@ export interface GapFillResult {
   total: number;
 }
 
-export async function syncGaps(options?: {
-  onProgress?: (progress: GapFillProgress) => void;
-  delayMs?: number;
-}): Promise<GapFillResult> {
+export async function syncGaps(options?: {onProgress?: (progress: GapFillProgress) => void; delayMs?: number}): Promise<GapFillResult> {
   const delayMs = options?.delayMs ?? 300;
   const cachePath = twitterBookmarksCachePath();
   const loaded = sanitizeRecords(await readJsonLines<BookmarkRecord>(cachePath));
@@ -846,8 +794,8 @@ export async function syncGaps(options?: {
   let textExpanded = 0;
   let failed = 0;
   const failures: GapFillFailure[] = [];
-  const dbQuotedUpdates: Array<{ id: string; quotedTweet: QuotedTweetSnapshot }> = [];
-  const dbTextUpdates: Array<{ id: string; text: string }> = [];
+  const dbQuotedUpdates: Array<{id: string; quotedTweet: QuotedTweetSnapshot}> = [];
+  const dbTextUpdates: Array<{id: string; text: string}> = [];
 
   // Fetch and apply incrementally
   for (let i = 0; i < allFetchIds.length; i++) {
@@ -863,12 +811,12 @@ export async function syncGaps(options?: {
           not_found: 'deleted or does not exist',
           forbidden: 'private or suspended account',
           rate_limited: 'rate limited after 4 retries',
-          server_error: 'X server error after 4 retries',
+          server_error: 'X server error after 4 retries'
         };
         failures.push({
           tweetId,
           reason: reasons[result.status] ?? result.status,
-          url: `https://x.com/_/status/${tweetId}`,
+          url: `https://x.com/_/status/${tweetId}`
         });
       }
     } catch (err) {
@@ -876,7 +824,7 @@ export async function syncGaps(options?: {
       failures.push({
         tweetId,
         reason: (err as Error).message ?? 'unknown error',
-        url: `https://x.com/_/status/${tweetId}`,
+        url: `https://x.com/_/status/${tweetId}`
       });
     }
 
@@ -886,7 +834,7 @@ export async function syncGaps(options?: {
       for (const record of recordsByQuotedId.get(tweetId) ?? []) {
         if (!record.quotedTweet) {
           record.quotedTweet = snapshot;
-          dbQuotedUpdates.push({ id: record.id, quotedTweet: snapshot });
+          dbQuotedUpdates.push({id: record.id, quotedTweet: snapshot});
           quotedFetched++;
         }
       }
@@ -894,7 +842,7 @@ export async function syncGaps(options?: {
       for (const record of recordsByTweetId.get(tweetId) ?? []) {
         if (snapshot.text.length > (record.text?.length ?? 0)) {
           record.text = snapshot.text;
-          dbTextUpdates.push({ id: record.id, text: snapshot.text });
+          dbTextUpdates.push({id: record.id, text: snapshot.text});
           textExpanded++;
         }
       }
@@ -905,7 +853,7 @@ export async function syncGaps(options?: {
       total,
       quotedFetched,
       textExpanded,
-      failed,
+      failed
     });
 
     // Checkpoint every 100 fetches
@@ -933,6 +881,6 @@ export async function syncGaps(options?: {
     bookmarkedAtMissing,
     failed,
     failures,
-    total,
+    total
   };
 }

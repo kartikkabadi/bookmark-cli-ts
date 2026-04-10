@@ -1,8 +1,8 @@
-import { ensureDir, pathExists, readJson, readJsonLines, writeJson, writeJsonLines } from './fs.js';
-import { ensureDataDir, twitterBackfillStatePath, twitterBookmarksCachePath, twitterBookmarksMetaPath } from './paths.js';
-import type { BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord } from './types.js';
-import { loadXApiConfig } from './config.js';
-import { loadTwitterOAuthToken } from './xauth.js';
+import {ensureDir, pathExists, readJson, readJsonLines, writeJson, writeJsonLines} from './fs.js';
+import {ensureDataDir, twitterBackfillStatePath, twitterBookmarksCachePath, twitterBookmarksMetaPath} from './paths.js';
+import type {BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord} from './types.js';
+import {loadXApiConfig} from './config.js';
+import {loadTwitterOAuthToken} from './xauth.js';
 
 export interface BookmarkSyncResult {
   mode: 'full' | 'incremental';
@@ -18,14 +18,14 @@ type BookmarkApiTweet = {
   author_id?: string;
   created_at?: string;
   entities?: {
-    urls?: Array<{ expanded_url?: string; url?: string }>;
+    urls?: Array<{expanded_url?: string; url?: string}>;
   };
 };
 
 type BookmarkApiResponse = {
   data?: BookmarkApiTweet[];
   includes?: {
-    users?: Array<{ id: string; username?: string; name?: string }>;
+    users?: Array<{id: string; username?: string; name?: string}>;
   };
   meta?: {
     next_token?: string;
@@ -45,16 +45,16 @@ function makeBookmark(record: Partial<BookmarkRecord> & Pick<BookmarkRecord, 'id
     syncedAt: record.syncedAt ?? new Date().toISOString(),
     media: record.media ?? [],
     links: record.links ?? [],
-    tags: record.tags ?? [],
+    tags: record.tags ?? []
   };
 }
 
-async function fetchJsonWithUserToken(url: string, accessToken: string): Promise<{ ok: boolean; status: number; parsed: any; text: string }> {
+async function fetchJsonWithUserToken(url: string, accessToken: string): Promise<{ok: boolean; status: number; parsed: any; text: string}> {
   const response = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
+      'Content-Type': 'application/json'
+    }
   });
 
   const text = await response.text();
@@ -69,17 +69,17 @@ async function fetchJsonWithUserToken(url: string, accessToken: string): Promise
     ok: response.ok,
     status: response.status,
     parsed,
-    text,
+    text
   };
 }
 
-async function fetchCurrentUserId(accessToken: string): Promise<{ ok: boolean; id?: string; status: number; detail: string }> {
+async function fetchCurrentUserId(accessToken: string): Promise<{ok: boolean; id?: string; status: number; detail: string}> {
   const result = await fetchJsonWithUserToken('https://api.x.com/2/users/me', accessToken);
   if (!result.ok) {
     return {
       ok: false,
       status: result.status,
-      detail: result.parsed ? JSON.stringify(result.parsed) : result.text,
+      detail: result.parsed ? JSON.stringify(result.parsed) : result.text
     };
   }
 
@@ -88,7 +88,7 @@ async function fetchCurrentUserId(accessToken: string): Promise<{ ok: boolean; i
     return {
       ok: false,
       status: result.status,
-      detail: 'Could not find user id in /2/users/me response',
+      detail: 'Could not find user id in /2/users/me response'
     };
   }
 
@@ -96,14 +96,14 @@ async function fetchCurrentUserId(accessToken: string): Promise<{ ok: boolean; i
     ok: true,
     id: String(id),
     status: result.status,
-    detail: 'Resolved current user id',
+    detail: 'Resolved current user id'
   };
 }
 
 export function normalizeBookmarkPage(page: BookmarkApiResponse, syncedAt: string): BookmarkRecord[] {
-  const userMap = new Map<string, { username?: string; name?: string }>();
+  const userMap = new Map<string, {username?: string; name?: string}>();
   for (const user of page.includes?.users ?? []) {
-    userMap.set(String(user.id), { username: user.username, name: user.name });
+    userMap.set(String(user.id), {username: user.username, name: user.name});
   }
 
   return (page.data ?? []).map((tweet) => {
@@ -119,12 +119,12 @@ export function normalizeBookmarkPage(page: BookmarkApiResponse, syncedAt: strin
       // The v2 bookmarks endpoint exposes tweet creation, not bookmark creation.
       bookmarkedAt: null,
       syncedAt,
-      links: (tweet.entities?.urls ?? []).map((u) => u.expanded_url ?? u.url ?? '').filter(Boolean),
+      links: (tweet.entities?.urls ?? []).map((u) => u.expanded_url ?? u.url ?? '').filter(Boolean)
     });
   });
 }
 
-async function fetchBookmarksPage(accessToken: string, userId: string, nextToken?: string): Promise<{ ok: boolean; status: number; detail: string; page?: BookmarkApiResponse; requestUrl: string }> {
+async function fetchBookmarksPage(accessToken: string, userId: string, nextToken?: string): Promise<{ok: boolean; status: number; detail: string; page?: BookmarkApiResponse; requestUrl: string}> {
   const url = new URL(`https://api.x.com/2/users/${userId}/bookmarks`);
   url.searchParams.set('max_results', '100');
   url.searchParams.set('tweet.fields', 'created_at,author_id,entities');
@@ -146,7 +146,7 @@ async function fetchBookmarksPage(accessToken: string, userId: string, nextToken
         ok: false,
         status: result.status,
         detail: result.parsed ? JSON.stringify(result.parsed) : result.text,
-        requestUrl: url.toString(),
+        requestUrl: url.toString()
       };
     }
 
@@ -155,7 +155,7 @@ async function fetchBookmarksPage(accessToken: string, userId: string, nextToken
       status: result.status,
       detail: 'ok',
       page: result.parsed as BookmarkApiResponse,
-      requestUrl: url.toString(),
+      requestUrl: url.toString()
     };
   }
 
@@ -163,14 +163,11 @@ async function fetchBookmarksPage(accessToken: string, userId: string, nextToken
     ok: false,
     status: 429,
     detail: 'Rate limited after 4 retries. Try again later.',
-    requestUrl: url.toString(),
+    requestUrl: url.toString()
   };
 }
 
-export async function syncTwitterBookmarks(
-  mode: 'full' | 'incremental',
-  options: { targetAdds?: number } = {}
-): Promise<BookmarkSyncResult> {
+export async function syncTwitterBookmarks(mode: 'full' | 'incremental', options: {targetAdds?: number} = {}): Promise<BookmarkSyncResult> {
   const token = await loadTwitterOAuthToken();
   if (!token?.access_token) {
     throw new Error('Missing user-context OAuth token. Run: ft auth');
@@ -232,7 +229,7 @@ export async function syncTwitterBookmarks(
     schemaVersion: 1,
     lastFullSyncAt: mode === 'full' ? now : previousMeta?.lastFullSyncAt,
     lastIncrementalSyncAt: mode === 'incremental' ? now : previousMeta?.lastIncrementalSyncAt,
-    totalBookmarks: merged.length,
+    totalBookmarks: merged.length
   };
   await writeJson(metaPath, meta);
 
@@ -241,13 +238,11 @@ export async function syncTwitterBookmarks(
     totalBookmarks: merged.length,
     added,
     cachePath,
-    metaPath,
+    metaPath
   };
 }
 
-export function latestBookmarkSyncAt(
-  meta?: Pick<BookmarkCacheMeta, 'lastIncrementalSyncAt' | 'lastFullSyncAt'> | null,
-): string | null {
+export function latestBookmarkSyncAt(meta?: Pick<BookmarkCacheMeta, 'lastIncrementalSyncAt' | 'lastFullSyncAt'> | null): string | null {
   let latestValue: string | null = null;
   let latestTs = Number.NEGATIVE_INFINITY;
 
@@ -262,20 +257,14 @@ export function latestBookmarkSyncAt(
   return latestValue;
 }
 
-export async function getTwitterBookmarksStatus(): Promise<BookmarkCacheMeta & { cachePath: string; metaPath: string }> {
+export async function getTwitterBookmarksStatus(): Promise<BookmarkCacheMeta & {cachePath: string; metaPath: string}> {
   const cachePath = twitterBookmarksCachePath();
   const metaPath = twitterBookmarksMetaPath();
   const statePath = twitterBackfillStatePath();
-  const meta = (await pathExists(metaPath))
-    ? await readJson<BookmarkCacheMeta>(metaPath)
-    : undefined;
-  const state = (await pathExists(statePath))
-    ? await readJson<BookmarkBackfillState>(statePath)
-    : undefined;
+  const meta = (await pathExists(metaPath)) ? await readJson<BookmarkCacheMeta>(metaPath) : undefined;
+  const state = (await pathExists(statePath)) ? await readJson<BookmarkBackfillState>(statePath) : undefined;
   const metaUpdatedAt = latestBookmarkSyncAt(meta);
-  const graphQlStatusIsNewer = Boolean(
-    state?.lastRunAt && (!metaUpdatedAt || Date.parse(state.lastRunAt) > Date.parse(metaUpdatedAt))
-  );
+  const graphQlStatusIsNewer = Boolean(state?.lastRunAt && (!metaUpdatedAt || Date.parse(state.lastRunAt) > Date.parse(metaUpdatedAt)));
 
   if (!meta || graphQlStatusIsNewer) {
     const totalBookmarks = (await readJsonLines<BookmarkRecord>(cachePath)).length;
@@ -286,13 +275,13 @@ export async function getTwitterBookmarksStatus(): Promise<BookmarkCacheMeta & {
       lastIncrementalSyncAt: state?.lastRunAt ?? meta?.lastIncrementalSyncAt,
       totalBookmarks,
       cachePath,
-      metaPath,
+      metaPath
     };
   }
 
   return {
     ...meta,
     cachePath,
-    metaPath,
+    metaPath
   };
 }

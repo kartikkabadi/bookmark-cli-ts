@@ -1,5 +1,5 @@
-import { openDb } from './db.js';
-import { twitterBookmarksIndexPath } from './paths.js';
+import {openDb} from './db.js';
+import {twitterBookmarksIndexPath} from './paths.js';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 
@@ -12,16 +12,16 @@ const rgb = (r: number, g: number, b: number) => `${ESC}38;2;${r};${g};${b}m`;
 
 // Palette — muted, tasteful
 const C = {
-  title:   rgb(199, 146, 234),  // soft lavender
-  accent:  rgb(130, 170, 255),  // periwinkle
-  warm:    rgb(255, 180, 120),  // peach
-  green:   rgb(120, 220, 170),  // mint
-  dim:     rgb(100, 100, 120),  // muted gray
-  text:    rgb(200, 200, 210),  // light gray
-  hot:     rgb(255, 120, 140),  // coral
-  gold:    rgb(240, 200, 100),  // amber
-  cyan:    rgb(100, 220, 230),  // teal
-  violet:  rgb(170, 130, 255),  // violet
+  title: rgb(199, 146, 234), // soft lavender
+  accent: rgb(130, 170, 255), // periwinkle
+  warm: rgb(255, 180, 120), // peach
+  green: rgb(120, 220, 170), // mint
+  dim: rgb(100, 100, 120), // muted gray
+  text: rgb(200, 200, 210), // light gray
+  hot: rgb(255, 120, 140), // coral
+  gold: rgb(240, 200, 100), // amber
+  cyan: rgb(100, 220, 230), // teal
+  violet: rgb(170, 130, 255) // violet
 };
 
 // ── Block characters for bar charts ──────────────────────────────────────────
@@ -33,13 +33,7 @@ function bar(value: number, max: number, width: number, color: string): string {
   const filled = ratio * width;
   const full = Math.floor(filled);
   const partial = Math.round((filled - full) * 8);
-  return (
-    color +
-    '█'.repeat(full) +
-    (partial > 0 ? BLOCKS[partial] : '') +
-    RESET +
-    ' '.repeat(Math.max(0, width - full - (partial > 0 ? 1 : 0)))
-  );
+  return color + '█'.repeat(full) + (partial > 0 ? BLOCKS[partial] : '') + RESET + ' '.repeat(Math.max(0, width - full - (partial > 0 ? 1 : 0)));
 }
 
 // ── Sparkline ────────────────────────────────────────────────────────────────
@@ -48,11 +42,7 @@ const SPARKS = '▁▂▃▄▅▆▇█';
 
 function sparkline(data: number[], color: string): string {
   const max = Math.max(...data, 1);
-  return (
-    color +
-    data.map((v) => SPARKS[Math.round((v / max) * 7)] || SPARKS[0]).join('') +
-    RESET
-  );
+  return color + data.map((v) => SPARKS[Math.round((v / max) * 7)] || SPARKS[0]).join('') + RESET;
 }
 
 // ── Braille dot chart (2-wide × 4-tall per character) ────────────────────────
@@ -62,7 +52,7 @@ const BRAILLE_DOTS = [
   [0x01, 0x08],
   [0x02, 0x10],
   [0x04, 0x20],
-  [0x40, 0x80],
+  [0x40, 0x80]
 ];
 
 function brailleChart(data: number[], width: number, color: string): string {
@@ -102,11 +92,7 @@ function boxDivider(width: number): string {
 }
 // ── Gradient helpers ─────────────────────────────────────────────────────────
 
-function lerpColor(
-  from: [number, number, number],
-  to: [number, number, number],
-  t: number
-): string {
+function lerpColor(from: [number, number, number], to: [number, number, number], t: number): string {
   const r = Math.round(from[0] + (to[0] - from[0]) * t);
   const g = Math.round(from[1] + (to[1] - from[1]) * t);
   const b = Math.round(from[2] + (to[2] - from[2]) * t);
@@ -125,21 +111,21 @@ interface GemBookmark {
 interface VizData {
   total: number;
   uniqueAuthors: number;
-  dateRange: { earliest: string; latest: string };
-  topAuthors: { handle: string; count: number }[];
-  monthlyActivity: { month: string; count: number }[];
-  dayOfWeekActivity: { day: string; count: number }[];
-  hourActivity: { hour: number; count: number }[];
-  topDomains: { domain: string; count: number }[];
-  mediaStats: { withMedia: number; withLinks: number; total: number };
-  recentAuthors: { handle: string; count: number }[];
-  languages: { lang: string; count: number }[];
+  dateRange: {earliest: string; latest: string};
+  topAuthors: {handle: string; count: number}[];
+  monthlyActivity: {month: string; count: number}[];
+  dayOfWeekActivity: {day: string; count: number}[];
+  hourActivity: {hour: number; count: number}[];
+  topDomains: {domain: string; count: number}[];
+  mediaStats: {withMedia: number; withLinks: number; total: number};
+  recentAuthors: {handle: string; count: number}[];
+  languages: {lang: string; count: number}[];
   avgTextLength: number;
   timeCapsules: GemBookmark[];
   hiddenGems: GemBookmark[];
-  risingVoices: { handle: string; count: number }[];
-  categories: { name: string; count: number }[];
-  domains: { name: string; count: number }[];
+  risingVoices: {handle: string; count: number}[];
+  categories: {name: string; count: number}[];
+  domains: {name: string; count: number}[];
 }
 
 async function queryVizData(): Promise<VizData> {
@@ -205,9 +191,7 @@ async function queryVizData(): Promise<VizData> {
     );
 
     // Domains from links_json
-    const domainRows = db.exec(
-      `SELECT links_json FROM bookmarks WHERE links_json IS NOT NULL AND links_json != '[]'`
-    );
+    const domainRows = db.exec(`SELECT links_json FROM bookmarks WHERE links_json IS NOT NULL AND links_json != '[]'`);
     const domainCounts = new Map<string, number>();
     for (const row of domainRows[0]?.values ?? []) {
       try {
@@ -226,12 +210,12 @@ async function queryVizData(): Promise<VizData> {
     const topDomains = [...domainCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 12)
-      .map(([domain, count]) => ({ domain, count }));
+      .map(([domain, count]) => ({domain, count}));
 
     const mediaStats = {
       withMedia: db.exec('SELECT COUNT(*) FROM bookmarks WHERE media_count > 0')[0]?.values[0]?.[0] as number,
       withLinks: db.exec('SELECT COUNT(*) FROM bookmarks WHERE link_count > 0')[0]?.values[0]?.[0] as number,
-      total,
+      total
     };
 
     const langRows = db.exec(
@@ -263,7 +247,7 @@ async function queryVizData(): Promise<VizData> {
       author: r[0] as string,
       text: r[1] as string,
       tweetId: r[2] as string,
-      postedAt: r[3] as string,
+      postedAt: r[3] as string
     }));
 
     // Hidden gems: authors bookmarked exactly once, with long text (> 250 chars)
@@ -283,7 +267,7 @@ async function queryVizData(): Promise<VizData> {
       author: r[0] as string,
       text: r[1] as string,
       tweetId: r[2] as string,
-      postedAt: r[3] as string,
+      postedAt: r[3] as string
     }));
 
     // Rising voices: authors with 3+ bookmarks, all from the most recent month
@@ -293,7 +277,7 @@ async function queryVizData(): Promise<VizData> {
        ORDER BY bookmarked_at DESC LIMIT 1`
     )[0]?.values[0]?.[0] as string | undefined;
 
-    let risingVoices: { handle: string; count: number }[] = [];
+    let risingVoices: {handle: string; count: number}[] = [];
     if (latestMonth) {
       const risingRows = db.exec(
         `SELECT author_handle, COUNT(*) as c FROM bookmarks
@@ -306,23 +290,33 @@ async function queryVizData(): Promise<VizData> {
       );
       risingVoices = (risingRows[0]?.values ?? []).map((r) => ({
         handle: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       }));
     }
 
     const monthNameMap: Record<string, string> = {
-      '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun',
-      '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec',
+      '01': 'Jan',
+      '02': 'Feb',
+      '03': 'Mar',
+      '04': 'Apr',
+      '05': 'May',
+      '06': 'Jun',
+      '07': 'Jul',
+      '08': 'Aug',
+      '09': 'Sep',
+      '10': 'Oct',
+      '11': 'Nov',
+      '12': 'Dec'
     };
     const rawMonthly = (monthlyRows[0]?.values ?? []).map((r) => {
       const month = r[0] as string; // "2026-03"
       const [year, monthNum] = month.split('-');
       const label = `${monthNameMap[monthNum] ?? monthNum} ${year}`;
-      return { month, label, count: r[1] as number };
+      return {month, label, count: r[1] as number};
     });
 
     // Categories
-    let categories: { name: string; count: number }[] = [];
+    let categories: {name: string; count: number}[] = [];
     try {
       const catRows = db.exec(
         `SELECT primary_category, COUNT(*) as c FROM bookmarks
@@ -331,12 +325,14 @@ async function queryVizData(): Promise<VizData> {
       );
       categories = (catRows[0]?.values ?? []).map((r) => ({
         name: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       }));
-    } catch { /* column may not exist */ }
+    } catch {
+      /* column may not exist */
+    }
 
     // Domains
-    let domains: { name: string; count: number }[] = [];
+    let domains: {name: string; count: number}[] = [];
     try {
       const domRows = db.exec(
         `SELECT primary_domain, COUNT(*) as c FROM bookmarks
@@ -345,49 +341,51 @@ async function queryVizData(): Promise<VizData> {
       );
       domains = (domRows[0]?.values ?? []).map((r) => ({
         name: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       }));
-    } catch { /* column may not exist in v2 */ }
+    } catch {
+      /* column may not exist in v2 */
+    }
 
     return {
       total,
       uniqueAuthors: authors,
       dateRange: {
         earliest: (range?.[0] as string) ?? '?',
-        latest: (range?.[1] as string) ?? '?',
+        latest: (range?.[1] as string) ?? '?'
       },
       topAuthors: (topAuthorsRows[0]?.values ?? []).map((r) => ({
         handle: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       })),
       monthlyActivity: rawMonthly.map((r) => ({
         month: r.label,
-        count: r.count,
+        count: r.count
       })),
       dayOfWeekActivity: (dowRows[0]?.values ?? []).map((r) => ({
         day: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       })),
       hourActivity: (hourRows[0]?.values ?? []).map((r) => ({
         hour: r[0] as number,
-        count: r[1] as number,
+        count: r[1] as number
       })),
       topDomains,
       mediaStats,
       recentAuthors: (recentAuthorsRows[0]?.values ?? []).map((r) => ({
         handle: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       })),
       languages: (langRows[0]?.values ?? []).map((r) => ({
         lang: r[0] as string,
-        count: r[1] as number,
+        count: r[1] as number
       })),
       avgTextLength: avgLen,
       timeCapsules,
       hiddenGems,
       risingVoices,
       categories,
-      domains,
+      domains
     };
   } finally {
     db.close();
@@ -402,16 +400,10 @@ function renderHeader(data: VizData): string[] {
   const lines: string[] = [];
   lines.push('');
   lines.push(boxTop(W));
-  lines.push(boxRow(
-    `${C.title}${BOLD}  ✦  FIELD THEORY  ·  BOOKMARK OBSERVATORY  ✦  ${RESET}`, W
-  ));
+  lines.push(boxRow(`${C.title}${BOLD}  ✦  FIELD THEORY  ·  BOOKMARK OBSERVATORY  ✦  ${RESET}`, W));
   lines.push(boxDivider(W));
-  lines.push(boxRow(
-    `${C.text}${data.total.toLocaleString()} bookmarks${C.dim}  ·  ${C.text}${data.uniqueAuthors.toLocaleString()} voices${C.dim}  ·  ${C.text}${data.languages.length} languages`, W
-  ));
-  lines.push(boxRow(
-    `${C.dim}${data.dateRange.earliest.slice(0, 16)} → ${data.dateRange.latest.slice(0, 16)}`, W
-  ));
+  lines.push(boxRow(`${C.text}${data.total.toLocaleString()} bookmarks${C.dim}  ·  ${C.text}${data.uniqueAuthors.toLocaleString()} voices${C.dim}  ·  ${C.text}${data.languages.length} languages`, W));
+  lines.push(boxRow(`${C.dim}${data.dateRange.earliest.slice(0, 16)} → ${data.dateRange.latest.slice(0, 16)}`, W));
   lines.push(boxBottom(W));
   return lines;
 }
@@ -431,9 +423,7 @@ function renderTopAuthors(data: VizData): string[] {
     const color = lerpColor([100, 160, 255], [255, 120, 180], t);
     const handle = `@${author.handle}`.padEnd(20);
     const count = String(author.count).padStart(4);
-    lines.push(
-      `  ${C.text}${handle}${RESET} ${bar(author.count, maxCount, barWidth, color)} ${C.dim}${count}${RESET}`
-    );
+    lines.push(`  ${C.text}${handle}${RESET} ${bar(author.count, maxCount, barWidth, color)} ${C.dim}${count}${RESET}`);
   }
   return lines;
 }
@@ -458,9 +448,7 @@ function renderActivity(data: VizData): string[] {
     const t = m.count / maxCount;
     const color = lerpColor([255, 160, 100], [255, 100, 120], t);
     const count = String(m.count).padStart(5);
-    lines.push(
-      `  ${C.dim}${label}${RESET} ${bar(m.count, maxCount, 36, color)} ${C.dim}${count}${RESET}`
-    );
+    lines.push(`  ${C.dim}${label}${RESET} ${bar(m.count, maxCount, 36, color)} ${C.dim}${count}${RESET}`);
   }
   return lines;
 }
@@ -468,9 +456,7 @@ function renderActivity(data: VizData): string[] {
 function renderDayOfWeek(data: VizData): string[] {
   const lines: string[] = [];
   const dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const ordered = dayOrder
-    .map((d) => data.dayOfWeekActivity.find((r) => r.day === d))
-    .filter(Boolean) as { day: string; count: number }[];
+  const ordered = dayOrder.map((d) => data.dayOfWeekActivity.find((r) => r.day === d)).filter(Boolean) as {day: string; count: number}[];
 
   if (ordered.length === 0) return [];
 
@@ -489,9 +475,7 @@ function renderDayOfWeek(data: VizData): string[] {
     const t = d.count / maxCount;
     const color = lerpColor([80, 200, 160], [120, 255, 200], t);
     const count = String(d.count).padStart(5);
-    lines.push(
-      `  ${C.text}${label}${RESET} ${bar(d.count, maxCount, 36, color)} ${C.dim}${count}${RESET}`
-    );
+    lines.push(`  ${C.text}${label}${RESET} ${bar(d.count, maxCount, 36, color)} ${C.dim}${count}${RESET}`);
   }
   return lines;
 }
@@ -503,7 +487,7 @@ function renderHourOfDay(data: VizData): string[] {
 
   // Fill in all 24 hours
   const hourMap = new Map(data.hourActivity.map((h) => [h.hour, h.count]));
-  const allHours = Array.from({ length: 24 }, (_, i) => hourMap.get(i) ?? 0);
+  const allHours = Array.from({length: 24}, (_, i) => hourMap.get(i) ?? 0);
   const maxCount = Math.max(...allHours, 1);
 
   lines.push('');
@@ -571,16 +555,14 @@ function renderDomains(data: VizData): string[] {
     const t = d.count / maxCount;
     const color = lerpColor([140, 100, 230], [200, 150, 255], t);
     const count = String(d.count).padStart(4);
-    lines.push(
-      `  ${C.text}${label}${RESET} ${bar(d.count, maxCount, 22, color)} ${C.dim}${count}${RESET}`
-    );
+    lines.push(`  ${C.text}${label}${RESET} ${bar(d.count, maxCount, 22, color)} ${C.dim}${count}${RESET}`);
   }
   return lines;
 }
 
 function renderMediaBreakdown(data: VizData): string[] {
   const lines: string[] = [];
-  const { withMedia, withLinks, total } = data.mediaStats;
+  const {withMedia, withLinks, total} = data.mediaStats;
 
   lines.push('');
   lines.push(`  ${C.gold}${BOLD}COMPOSITION${RESET}`);
@@ -598,11 +580,7 @@ function renderMediaBreakdown(data: VizData): string[] {
   const textW = barWidth - mediaW - linkW;
 
   // Stacked bar
-  const stackedBar =
-    rgb(120, 220, 170) + '█'.repeat(mediaW) +
-    rgb(130, 170, 255) + '█'.repeat(linkW) +
-    rgb(100, 100, 120) + '█'.repeat(Math.max(0, textW)) +
-    RESET;
+  const stackedBar = rgb(120, 220, 170) + '█'.repeat(mediaW) + rgb(130, 170, 255) + '█'.repeat(linkW) + rgb(100, 100, 120) + '█'.repeat(Math.max(0, textW)) + RESET;
 
   lines.push(`  ${stackedBar}`);
   lines.push('');
@@ -626,7 +604,9 @@ function renderCategories(data: VizData): string[] {
     const cat = data.categories[i];
     const barLen = Math.max(1, Math.round((cat.count / maxCount) * 30));
     const fade = Math.max(0.3, 1 - (i / data.categories.length) * 0.7);
-    const r = Math.round(255 * fade), g = Math.round(180 * fade), b = Math.round(120 * fade);
+    const r = Math.round(255 * fade),
+      g = Math.round(180 * fade),
+      b = Math.round(120 * fade);
     const bar = rgb(r, g, b) + '\u2588'.repeat(barLen) + RESET;
     lines.push(`  ${C.warm}${cat.name.padEnd(18)}${RESET} ${bar} ${C.dim}${cat.count}${RESET}`);
   }
@@ -648,7 +628,9 @@ function renderDomainBreakdown(data: VizData): string[] {
     const dom = data.domains[i];
     const barLen = Math.max(1, Math.round((dom.count / maxCount) * 30));
     const fade = Math.max(0.3, 1 - (i / data.domains.length) * 0.7);
-    const r = Math.round(100 * fade), g = Math.round(220 * fade), b = Math.round(230 * fade);
+    const r = Math.round(100 * fade),
+      g = Math.round(220 * fade),
+      b = Math.round(230 * fade);
     const bar = rgb(r, g, b) + '\u2588'.repeat(barLen) + RESET;
     lines.push(`  ${C.cyan}${dom.name.padEnd(18)}${RESET} ${bar} ${C.dim}${dom.count}${RESET}`);
   }
@@ -664,9 +646,7 @@ function renderFingerprint(data: VizData): string[] {
   lines.push(boxDivider(W));
 
   const mediaPct = ((data.mediaStats.withMedia / data.total) * 100).toFixed(0);
-  const longTailPct = data.uniqueAuthors > 0
-    ? (((data.uniqueAuthors - data.topAuthors.length) / data.uniqueAuthors) * 100).toFixed(0)
-    : '0';
+  const longTailPct = data.uniqueAuthors > 0 ? (((data.uniqueAuthors - data.topAuthors.length) / data.uniqueAuthors) * 100).toFixed(0) : '0';
 
   lines.push(boxRow(`${C.dim}avg bookmark length${RESET}    ${C.text}${Math.round(data.avgTextLength)} chars${RESET}`, W));
   lines.push(boxRow(`${C.dim}media-bearing${RESET}          ${C.text}${mediaPct}%${RESET}`, W));
@@ -774,7 +754,7 @@ export async function renderViz(): Promise<string> {
     ...renderRisingVoices(data),
     ...renderFingerprint(data),
     ...renderHeader(data),
-    '', // trailing newline
+    '' // trailing newline
   ];
 
   return sections.join('\n');

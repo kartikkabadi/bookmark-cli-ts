@@ -1,10 +1,10 @@
-import type { Database } from 'sql.js';
-import { openDb, saveDb } from './db.js';
-import { readJsonLines } from './fs.js';
-import { twitterBookmarksCachePath, twitterBookmarksIndexPath } from './paths.js';
-import type { BookmarkRecord, QuotedTweetSnapshot } from './types.js';
-import { classifyCorpus, formatClassificationSummary } from './bookmark-classify.js';
-import type { ClassificationSummary } from './bookmark-classify.js';
+import type {Database} from 'sql.js';
+import {openDb, saveDb} from './db.js';
+import {readJsonLines} from './fs.js';
+import {twitterBookmarksCachePath, twitterBookmarksIndexPath} from './paths.js';
+import type {BookmarkRecord, QuotedTweetSnapshot} from './types.js';
+import {classifyCorpus, formatClassificationSummary} from './bookmark-classify.js';
+import type {ClassificationSummary} from './bookmark-classify.js';
 
 const SCHEMA_VERSION = 4;
 
@@ -106,7 +106,7 @@ function mapTimelineRow(row: unknown[]): BookmarkTimelineItem {
     replyCount: row[19] as number | null,
     quoteCount: row[20] as number | null,
     bookmarkCount: row[21] as number | null,
-    viewCount: row[22] as number | null,
+    viewCount: row[22] as number | null
   };
 }
 
@@ -144,7 +144,7 @@ function buildBookmarkWhereClause(filters: BookmarkTimelineFilters): {
 
   return {
     where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
-    params,
+    params
   };
 }
 
@@ -225,15 +225,27 @@ function ensureMigrations(db: Database): void {
     // bookmarks table may not exist yet (first run before index build)
     const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='bookmarks'");
     if (tableExists.length && tableExists[0].values.length > 0) {
-      try { db.run('ALTER TABLE bookmarks ADD COLUMN domains TEXT'); } catch { /* already exists */ }
-      try { db.run('ALTER TABLE bookmarks ADD COLUMN primary_domain TEXT'); } catch { /* already exists */ }
+      try {
+        db.run('ALTER TABLE bookmarks ADD COLUMN domains TEXT');
+      } catch {
+        /* already exists */
+      }
+      try {
+        db.run('ALTER TABLE bookmarks ADD COLUMN primary_domain TEXT');
+      } catch {
+        /* already exists */
+      }
       db.run('CREATE INDEX IF NOT EXISTS idx_bookmarks_domain ON bookmarks(primary_domain)');
     }
   }
   if (version < 4) {
     const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='bookmarks'");
     if (tableExists.length && tableExists[0].values.length > 0) {
-      try { db.run('ALTER TABLE bookmarks ADD COLUMN quoted_tweet_json TEXT'); } catch { /* already exists */ }
+      try {
+        db.run('ALTER TABLE bookmarks ADD COLUMN quoted_tweet_json TEXT');
+      } catch {
+        /* already exists */
+      }
     }
   }
   if (version < SCHEMA_VERSION) {
@@ -257,45 +269,10 @@ function insertRecord(db: Database, r: BookmarkRecord, preserved?: PreservedBook
   const githubFromLinks = (r.links ?? []).filter((l) => /github\.com/i.test(l));
   const githubUrls = [...new Set([...githubMatches.map((m) => `https://${m}`), ...githubFromLinks])];
 
-  db.run(
-    `INSERT OR REPLACE INTO bookmarks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      r.id,
-      r.tweetId,
-      r.url,
-      r.text,
-      r.authorHandle ?? null,
-      r.authorName ?? null,
-      r.authorProfileImageUrl ?? null,
-      r.postedAt ?? null,
-      r.bookmarkedAt ?? null,
-      r.syncedAt,
-      r.conversationId ?? null,
-      r.inReplyToStatusId ?? null,
-      r.quotedStatusId ?? null,
-      r.language ?? null,
-      r.engagement?.likeCount ?? null,
-      r.engagement?.repostCount ?? null,
-      r.engagement?.replyCount ?? null,
-      r.engagement?.quoteCount ?? null,
-      r.engagement?.bookmarkCount ?? null,
-      r.engagement?.viewCount ?? null,
-      r.media?.length ?? 0,
-      r.links?.length ?? 0,
-      r.links?.length ? JSON.stringify(r.links) : null,
-      r.tags?.length ? JSON.stringify(r.tags) : null,
-      r.ingestedVia ?? null,
-      preserved?.categories ?? null,
-      preserved?.primaryCategory ?? 'unclassified',
-      preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null),
-      preserved?.domains ?? null,
-      preserved?.primaryDomain ?? null,
-      r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null),
-    ]
-  );
+  db.run(`INSERT OR REPLACE INTO bookmarks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [r.id, r.tweetId, r.url, r.text, r.authorHandle ?? null, r.authorName ?? null, r.authorProfileImageUrl ?? null, r.postedAt ?? null, r.bookmarkedAt ?? null, r.syncedAt, r.conversationId ?? null, r.inReplyToStatusId ?? null, r.quotedStatusId ?? null, r.language ?? null, r.engagement?.likeCount ?? null, r.engagement?.repostCount ?? null, r.engagement?.replyCount ?? null, r.engagement?.quoteCount ?? null, r.engagement?.bookmarkCount ?? null, r.engagement?.viewCount ?? null, r.media?.length ?? 0, r.links?.length ?? 0, r.links?.length ? JSON.stringify(r.links) : null, r.tags?.length ? JSON.stringify(r.tags) : null, r.ingestedVia ?? null, preserved?.categories ?? null, preserved?.primaryCategory ?? 'unclassified', preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null), preserved?.domains ?? null, preserved?.primaryDomain ?? null, r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null)]);
 }
 
-export async function buildIndex(options?: { force?: boolean }): Promise<{ dbPath: string; recordCount: number; newRecords: number }> {
+export async function buildIndex(options?: {force?: boolean}): Promise<{dbPath: string; recordCount: number; newRecords: number}> {
   const cachePath = twitterBookmarksCachePath();
   const dbPath = twitterBookmarksIndexPath();
   const records = await readJsonLines<BookmarkRecord>(cachePath);
@@ -318,19 +295,21 @@ export async function buildIndex(options?: { force?: boolean }): Promise<{ dbPat
         `SELECT id, categories, primary_category, github_urls, domains, primary_domain, quoted_tweet_json
          FROM bookmarks`
       );
-      for (const r of (rows[0]?.values ?? [])) {
+      for (const r of rows[0]?.values ?? []) {
         existingRows.set(r[0] as string, {
           categories: (r[1] as string) ?? null,
           primaryCategory: (r[2] as string) ?? null,
           githubUrls: (r[3] as string) ?? null,
           domains: (r[4] as string) ?? null,
           primaryDomain: (r[5] as string) ?? null,
-          quotedTweetJson: (r[6] as string) ?? null,
+          quotedTweetJson: (r[6] as string) ?? null
         });
       }
-    } catch { /* table may be empty */ }
+    } catch {
+      /* table may be empty */
+    }
 
-    const newRecords: BookmarkRecord[] = records.filter(r => !existingRows.has(r.id));
+    const newRecords: BookmarkRecord[] = records.filter((r) => !existingRows.has(r.id));
 
     if (records.length > 0) {
       db.run('BEGIN TRANSACTION');
@@ -350,7 +329,7 @@ export async function buildIndex(options?: { force?: boolean }): Promise<{ dbPat
 
     saveDb(db, dbPath);
     const totalRows = db.exec('SELECT COUNT(*) FROM bookmarks')[0]?.values[0]?.[0] as number;
-    return { dbPath, recordCount: totalRows, newRecords: newRecords.length };
+    return {dbPath, recordCount: totalRows, newRecords: newRecords.length};
   } finally {
     db.close();
   }
@@ -386,9 +365,7 @@ export async function searchBookmarks(options: SearchOptions): Promise<SearchRes
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // If we have an FTS query, use bm25 for ranking; otherwise sort by posted_at
-    const orderBy = options.query
-      ? `ORDER BY bm25(bookmarks_fts, 5.0, 1.0, 1.0) ASC`
-      : `ORDER BY b.posted_at DESC`;
+    const orderBy = options.query ? `ORDER BY bm25(bookmarks_fts, 5.0, 1.0, 1.0) ASC` : `ORDER BY b.posted_at DESC`;
 
     // For FTS ranking we need to join with the FTS table for bm25
     let sql: string;
@@ -433,16 +410,14 @@ export async function searchBookmarks(options: SearchOptions): Promise<SearchRes
       authorHandle: row[3] as string | undefined,
       authorName: row[4] as string | undefined,
       postedAt: row[5] as string | null,
-      score: row[6] as number,
+      score: row[6] as number
     }));
   } finally {
     db.close();
   }
 }
 
-export async function listBookmarks(
-  filters: BookmarkTimelineFilters = {},
-): Promise<BookmarkTimelineItem[]> {
+export async function listBookmarks(filters: BookmarkTimelineFilters = {}): Promise<BookmarkTimelineItem[]> {
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
   ensureMigrations(db);
@@ -450,7 +425,7 @@ export async function listBookmarks(
   const offset = filters.offset ?? 0;
 
   try {
-    const { where, params } = buildBookmarkWhereClause(filters);
+    const {where, params} = buildBookmarkWhereClause(filters);
     const sql = `
       SELECT
         b.id,
@@ -492,15 +467,13 @@ export async function listBookmarks(
   }
 }
 
-export async function countBookmarks(
-  filters: BookmarkTimelineFilters = {},
-): Promise<number> {
+export async function countBookmarks(filters: BookmarkTimelineFilters = {}): Promise<number> {
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
   ensureMigrations(db);
 
   try {
-    const { where, params } = buildBookmarkWhereClause(filters);
+    const {where, params} = buildBookmarkWhereClause(filters);
     const sql = `
       SELECT COUNT(*)
       FROM bookmarks b
@@ -569,11 +542,11 @@ export async function exportBookmarksForSyncSeed(): Promise<BookmarkRecord[]> {
         replyCount: row[16] as number | undefined,
         quoteCount: row[17] as number | undefined,
         bookmarkCount: row[18] as number | undefined,
-        viewCount: row[19] as number | undefined,
+        viewCount: row[19] as number | undefined
       },
       links: parseJsonArray(row[20]),
       tags: [],
-      ingestedVia: 'graphql',
+      ingestedVia: 'graphql'
     }));
   } finally {
     db.close();
@@ -626,9 +599,9 @@ export async function getBookmarkById(id: string): Promise<BookmarkTimelineItem 
 export async function getStats(): Promise<{
   totalBookmarks: number;
   uniqueAuthors: number;
-  dateRange: { earliest: string | null; latest: string | null };
-  topAuthors: { handle: string; count: number }[];
-  languageBreakdown: { language: string; count: number }[];
+  dateRange: {earliest: string | null; latest: string | null};
+  topAuthors: {handle: string; count: number}[];
+  languageBreakdown: {language: string; count: number}[];
 }> {
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
@@ -645,7 +618,7 @@ export async function getStats(): Promise<{
     );
     const topAuthors = (topAuthorsRows[0]?.values ?? []).map((r) => ({
       handle: r[0] as string,
-      count: r[1] as number,
+      count: r[1] as number
     }));
 
     const langRows = db.exec(
@@ -655,15 +628,15 @@ export async function getStats(): Promise<{
     );
     const languageBreakdown = (langRows[0]?.values ?? []).map((r) => ({
       language: r[0] as string,
-      count: r[1] as number,
+      count: r[1] as number
     }));
 
     return {
       totalBookmarks: total,
       uniqueAuthors: authors,
-      dateRange: { earliest: (range?.[0] as string) ?? null, latest: (range?.[1] as string) ?? null },
+      dateRange: {earliest: (range?.[0] as string) ?? null, latest: (range?.[1] as string) ?? null},
       topAuthors,
-      languageBreakdown,
+      languageBreakdown
     };
   } finally {
     db.close();
@@ -680,7 +653,7 @@ export async function classifyAndRebuild(): Promise<{
   const cachePath = twitterBookmarksCachePath();
   const dbPath = twitterBookmarksIndexPath();
   const records = await readJsonLines<BookmarkRecord>(cachePath);
-  const { results, summary } = classifyCorpus(records);
+  const {results, summary} = classifyCorpus(records);
 
   // Rebuild index then apply regex classifications
   const buildResult = await buildIndex();
@@ -698,7 +671,7 @@ export async function classifyAndRebuild(): Promise<{
   } finally {
     db.close();
   }
-  return { ...buildResult, summary };
+  return {...buildResult, summary};
 }
 
 export interface CategorySample {
@@ -711,12 +684,8 @@ export interface CategorySample {
   links?: string;
 }
 
-export async function sampleByCategory(
-  category: string,
-  limit: number,
-  existingDb?: Database,
-): Promise<CategorySample[]> {
-  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+export async function sampleByCategory(category: string, limit: number, existingDb?: Database): Promise<CategorySample[]> {
+  const db = existingDb ?? (await openDb(twitterBookmarksIndexPath()));
   if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
@@ -735,7 +704,7 @@ export async function sampleByCategory(
       authorHandle: (r[3] as string) ?? undefined,
       categories: (r[4] as string) ?? '',
       githubUrls: (r[5] as string) ?? undefined,
-      links: (r[6] as string) ?? undefined,
+      links: (r[6] as string) ?? undefined
     }));
   } finally {
     if (!existingDb) db.close();
@@ -743,7 +712,7 @@ export async function sampleByCategory(
 }
 
 export async function getCategoryCounts(existingDb?: Database): Promise<Record<string, number>> {
-  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  const db = existingDb ?? (await openDb(twitterBookmarksIndexPath()));
   if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
@@ -762,7 +731,7 @@ export async function getCategoryCounts(existingDb?: Database): Promise<Record<s
 }
 
 export async function getDomainCounts(existingDb?: Database): Promise<Record<string, number>> {
-  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  const db = existingDb ?? (await openDb(twitterBookmarksIndexPath()));
   if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
@@ -780,12 +749,8 @@ export async function getDomainCounts(existingDb?: Database): Promise<Record<str
   }
 }
 
-export async function sampleByDomain(
-  domain: string,
-  limit: number,
-  existingDb?: Database,
-): Promise<CategorySample[]> {
-  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+export async function sampleByDomain(domain: string, limit: number, existingDb?: Database): Promise<CategorySample[]> {
+  const db = existingDb ?? (await openDb(twitterBookmarksIndexPath()));
   if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
@@ -804,19 +769,15 @@ export async function sampleByDomain(
       authorHandle: (r[3] as string) ?? undefined,
       categories: (r[4] as string) ?? '',
       githubUrls: (r[5] as string) ?? undefined,
-      links: (r[6] as string) ?? undefined,
+      links: (r[6] as string) ?? undefined
     }));
   } finally {
     if (!existingDb) db.close();
   }
 }
 
-export async function sampleByAuthor(
-  authorHandle: string,
-  limit: number,
-  existingDb?: Database,
-): Promise<CategorySample[]> {
-  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+export async function sampleByAuthor(authorHandle: string, limit: number, existingDb?: Database): Promise<CategorySample[]> {
+  const db = existingDb ?? (await openDb(twitterBookmarksIndexPath()));
   if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
@@ -835,18 +796,15 @@ export async function sampleByAuthor(
       authorHandle: (r[3] as string) ?? undefined,
       categories: (r[4] as string) ?? '',
       githubUrls: (r[5] as string) ?? undefined,
-      links: (r[6] as string) ?? undefined,
+      links: (r[6] as string) ?? undefined
     }));
   } finally {
     if (!existingDb) db.close();
   }
 }
 
-export async function getTopAuthorHandles(
-  minCount: number,
-  existingDb?: Database,
-): Promise<{ handle: string; count: number }[]> {
-  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+export async function getTopAuthorHandles(minCount: number, existingDb?: Database): Promise<{handle: string; count: number}[]> {
+  const db = existingDb ?? (await openDb(twitterBookmarksIndexPath()));
   if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
@@ -859,7 +817,7 @@ export async function getTopAuthorHandles(
     );
     return (rows[0]?.values ?? []).map((r: any) => ({
       handle: r[0] as string,
-      count: r[1] as number,
+      count: r[1] as number
     }));
   } finally {
     if (!existingDb) db.close();
@@ -876,13 +834,11 @@ export async function openBookmarksDb(): Promise<Database> {
   return db;
 }
 
-export { type Database } from 'sql.js';
+export {type Database} from 'sql.js';
 
 // ── Gap-fill helpers ────────────────────────────────────────────────────
 
-export async function updateQuotedTweets(
-  records: Array<{ id: string; quotedTweet: QuotedTweetSnapshot }>,
-): Promise<void> {
+export async function updateQuotedTweets(records: Array<{id: string; quotedTweet: QuotedTweetSnapshot}>): Promise<void> {
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
   ensureMigrations(db);
@@ -899,9 +855,7 @@ export async function updateQuotedTweets(
   }
 }
 
-export async function updateBookmarkText(
-  records: Array<{ id: string; text: string }>,
-): Promise<void> {
+export async function updateBookmarkText(records: Array<{id: string; text: string}>): Promise<void> {
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
   ensureMigrations(db);

@@ -5,11 +5,11 @@
  * Remembers the user's choice in ~/.ft-bookmarks/.preferences.
  */
 
-import { execFileSync, execFile } from 'node:child_process';
+import {execFileSync, execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadPreferences, savePreferences } from './preferences.js';
-import { PromptCancelledError, promptText } from './prompt.js';
+import {loadPreferences, savePreferences} from './preferences.js';
+import {PromptCancelledError, promptText} from './prompt.js';
 
 // ── Engine registry ────────────────────────────────────────────────────
 
@@ -19,8 +19,8 @@ export interface EngineConfig {
 }
 
 const KNOWN_ENGINES: Record<string, EngineConfig> = {
-  claude: { bin: 'claude', args: (p) => ['-p', '--output-format', 'text', p] },
-  codex:  { bin: 'codex',  args: (p) => ['exec', p] },
+  claude: {bin: 'claude', args: (p) => ['-p', '--output-format', 'text', p]},
+  codex: {bin: 'codex', args: (p) => ['exec', p]}
 };
 
 /** Order used when auto-detecting. */
@@ -28,11 +28,7 @@ const PREFERENCE_ORDER = ['claude', 'codex'];
 
 // ── Detection ──────────────────────────────────────────────────────────
 
-export function hasCommandOnPath(
-  bin: string,
-  env: NodeJS.ProcessEnv = process.env,
-  platform = process.platform,
-): boolean {
+export function hasCommandOnPath(bin: string, env: NodeJS.ProcessEnv = process.env, platform = process.platform): boolean {
   const searchPath = env.PATH ?? '';
   const pathDirs = searchPath.split(path.delimiter).filter(Boolean);
   const pathext = (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM')
@@ -41,15 +37,14 @@ export function hasCommandOnPath(
     .filter(Boolean);
 
   const hasPathSeparator = /[\\/]/.test(bin);
-  const baseCandidates = hasPathSeparator
-    ? [bin]
-    : pathDirs.map((dir) => path.join(dir, bin));
-  const candidates = platform === 'win32'
-    ? baseCandidates.flatMap((candidate) => {
-        if (path.extname(candidate)) return [candidate];
-        return pathext.map((ext) => `${candidate}${ext}`);
-      })
-    : baseCandidates;
+  const baseCandidates = hasPathSeparator ? [bin] : pathDirs.map((dir) => path.join(dir, bin));
+  const candidates =
+    platform === 'win32'
+      ? baseCandidates.flatMap((candidate) => {
+          if (path.extname(candidate)) return [candidate];
+          return pathext.map((ext) => `${candidate}${ext}`);
+        })
+      : baseCandidates;
 
   return candidates.some((candidate) => {
     try {
@@ -87,7 +82,7 @@ export interface ResolvedEngine {
 }
 
 function resolve(name: string): ResolvedEngine {
-  return { name, config: KNOWN_ENGINES[name] };
+  return {name, config: KNOWN_ENGINES[name]};
 }
 
 /**
@@ -105,12 +100,7 @@ export async function resolveEngine(): Promise<ResolvedEngine> {
   const available = detectAvailableEngines();
 
   if (available.length === 0) {
-    throw new Error(
-      'No supported LLM CLI found.\n' +
-      'Install one of the following and log in:\n' +
-      '  - Claude Code: https://docs.anthropic.com/en/docs/claude-code\n' +
-      '  - Codex CLI:   https://github.com/openai/codex'
-    );
+    throw new Error('No supported LLM CLI found.\n' + 'Install one of the following and log in:\n' + '  - Claude Code: https://docs.anthropic.com/en/docs/claude-code\n' + '  - Codex CLI:   https://github.com/openai/codex');
   }
 
   // Check saved preference
@@ -132,7 +122,7 @@ export async function resolveEngine(): Promise<ResolvedEngine> {
   for (const name of available) {
     const yes = await askYesNo(`  Use ${name} for classification? (y/n): `);
     if (yes) {
-      savePreferences({ ...prefs, defaultEngine: name });
+      savePreferences({...prefs, defaultEngine: name});
       process.stderr.write(`  \u2713 ${name} set as default (change anytime: ft model)\n`);
       return resolve(name);
     }
@@ -151,12 +141,12 @@ export interface InvokeOptions {
 }
 
 export function invokeEngine(engine: ResolvedEngine, prompt: string, opts: InvokeOptions = {}): string {
-  const { bin, args } = engine.config;
+  const {bin, args} = engine.config;
   return execFileSync(bin, args(prompt), {
     encoding: 'utf-8',
     timeout: opts.timeout ?? 120_000,
     maxBuffer: opts.maxBuffer ?? 1024 * 1024,
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'ignore']
   }).trim();
 }
 
@@ -165,15 +155,20 @@ export function invokeEngine(engine: ResolvedEngine, prompt: string, opts: Invok
  * setInterval callbacks continue to fire while the LLM runs.
  */
 export function invokeEngineAsync(engine: ResolvedEngine, prompt: string, opts: InvokeOptions = {}): Promise<string> {
-  const { bin, args } = engine.config;
+  const {bin, args} = engine.config;
   return new Promise((resolve, reject) => {
-    execFile(bin, args(prompt), {
-      encoding: 'utf-8',
-      timeout: opts.timeout ?? 120_000,
-      maxBuffer: opts.maxBuffer ?? 1024 * 1024,
-    }, (err, stdout) => {
-      if (err) return reject(err);
-      resolve(stdout.trim());
-    });
+    execFile(
+      bin,
+      args(prompt),
+      {
+        encoding: 'utf-8',
+        timeout: opts.timeout ?? 120_000,
+        maxBuffer: opts.maxBuffer ?? 1024 * 1024
+      },
+      (err, stdout) => {
+        if (err) return reject(err);
+        resolve(stdout.trim());
+      }
+    );
   });
 }

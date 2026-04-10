@@ -1,7 +1,7 @@
-import { getTwitterBookmarksStatus, latestBookmarkSyncAt } from './bookmarks.js';
-import { buildIndex } from './bookmarks-db.js';
-import { loadTwitterOAuthToken } from './xauth.js';
-import { syncBookmarksGraphQL, type SyncProgress } from './graphql-bookmarks.js';
+import {getTwitterBookmarksStatus, latestBookmarkSyncAt} from './bookmarks.js';
+import {buildIndex} from './bookmarks-db.js';
+import {loadTwitterOAuthToken} from './xauth.js';
+import {syncBookmarksGraphQL, type SyncProgress} from './graphql-bookmarks.js';
 
 export interface BookmarkEnableResult {
   synced: boolean;
@@ -23,11 +23,9 @@ export async function enableBookmarks(): Promise<BookmarkEnableResult> {
   const syncResult = await syncBookmarksGraphQL({
     onProgress: (status: SyncProgress) => {
       if (status.page % 25 === 0 || status.done) {
-        process.stderr.write(
-          `\r[sync] page ${status.page} | ${status.totalFetched} fetched | ${status.newAdded} new${status.done ? ` | ${status.stopReason}\n` : ''}`
-        );
+        process.stderr.write(`\r[sync] page ${status.page} | ${status.totalFetched} fetched | ${status.newAdded} new${status.done ? ` | ${status.stopReason}\n` : ''}`);
       }
-    },
+    }
   });
 
   const indexResult = await buildIndex();
@@ -37,12 +35,7 @@ export async function enableBookmarks(): Promise<BookmarkEnableResult> {
     bookmarkCount: syncResult.totalBookmarks,
     indexedCount: indexResult.recordCount,
     cachePath: syncResult.cachePath,
-    messageLines: [
-      'Bookmarks enabled.',
-      `- sync completed: ${syncResult.totalBookmarks} bookmarks (${syncResult.added} new)`,
-      `- indexed: ${indexResult.recordCount} records → ${indexResult.dbPath}`,
-      `- cache: ${syncResult.cachePath}`,
-    ],
+    messageLines: ['Bookmarks enabled.', `- sync completed: ${syncResult.totalBookmarks} bookmarks (${syncResult.added} new)`, `- indexed: ${indexResult.recordCount} records → ${indexResult.dbPath}`, `- cache: ${syncResult.cachePath}`]
   };
 }
 
@@ -54,18 +47,12 @@ export async function getBookmarkStatusView(): Promise<BookmarkStatusView> {
     bookmarkCount: status.totalBookmarks,
     lastUpdated: latestBookmarkSyncAt(status),
     mode: token?.access_token ? 'Incremental by default (GraphQL + API available)' : 'Incremental by default (GraphQL)',
-    cachePath: status.cachePath,
+    cachePath: status.cachePath
   };
 }
 
 export function formatBookmarkStatus(view: BookmarkStatusView): string {
-  return [
-    'Bookmarks',
-    `  bookmarks: ${view.bookmarkCount}`,
-    `  last updated: ${view.lastUpdated ?? 'never'}`,
-    `  sync mode: ${view.mode}`,
-    `  cache: ${view.cachePath}`,
-  ].join('\n');
+  return ['Bookmarks', `  bookmarks: ${view.bookmarkCount}`, `  last updated: ${view.lastUpdated ?? 'never'}`, `  sync mode: ${view.mode}`, `  cache: ${view.cachePath}`].join('\n');
 }
 
 export function formatBookmarkSummary(view: BookmarkStatusView): string {

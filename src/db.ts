@@ -1,5 +1,5 @@
-import type { Database, SqlJsStatic } from 'sql.js';
-import { createRequire } from 'node:module';
+import type {Database, SqlJsStatic} from 'sql.js';
+import {createRequire} from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -12,7 +12,7 @@ function getSql(): Promise<SqlJsStatic> {
     const initSqlJs = require('sql.js-fts5') as (opts: any) => Promise<SqlJsStatic>;
     const wasmPath = require.resolve('sql.js-fts5/dist/sql-wasm.wasm');
     const wasmBinary = fs.readFileSync(wasmPath);
-    sqlPromise = initSqlJs({ wasmBinary });
+    sqlPromise = initSqlJs({wasmBinary});
   }
   return sqlPromise!;
 }
@@ -33,7 +33,7 @@ export async function createDb(): Promise<Database> {
 
 export function saveDb(db: Database, filePath: string): void {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, {recursive: true});
   const data = db.export();
   const tmp = filePath + '.tmp';
   fs.writeFileSync(tmp, Buffer.from(data));

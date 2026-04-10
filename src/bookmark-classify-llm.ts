@@ -6,10 +6,10 @@
  * No API keys needed. No local models. Just a logged-in Claude or Codex CLI.
  */
 
-import { openDb, saveDb } from './db.js';
-import { twitterBookmarksIndexPath } from './paths.js';
-import type { ResolvedEngine } from './engine.js';
-import { invokeEngine } from './engine.js';
+import {openDb, saveDb} from './db.js';
+import {twitterBookmarksIndexPath} from './paths.js';
+import type {ResolvedEngine} from './engine.js';
+import {invokeEngine} from './engine.js';
 
 const BATCH_SIZE = 50;
 
@@ -40,10 +40,12 @@ function sanitizeBookmarkText(text: string): string {
 // ── Prompt construction ─────────────────────────────────────────────────
 
 function buildPrompt(bookmarks: UnclassifiedBookmark[]): string {
-  const items = bookmarks.map((b, i) => {
-    const links = b.links ? ` | Links: ${b.links}` : '';
-    return `[${i}] id=${b.id} @${b.authorHandle ?? 'unknown'}: <tweet_text>${sanitizeBookmarkText(b.text)}</tweet_text>${links}`;
-  }).join('\n');
+  const items = bookmarks
+    .map((b, i) => {
+      const links = b.links ? ` | Links: ${b.links}` : '';
+      return `[${i}] id=${b.id} @${b.authorHandle ?? 'unknown'}: <tweet_text>${sanitizeBookmarkText(b.text)}</tweet_text>${links}`;
+    })
+    .join('\n');
 
   return `Classify each bookmark into one or more categories. Return ONLY a JSON array, no other text.
 
@@ -85,15 +87,11 @@ function parseResponse(raw: string, batchIds: Set<string>): LlmClassification[] 
     if (!item.id || !batchIds.has(item.id)) continue;
 
     const rawArr = item.categories ?? item.domains ?? [];
-    const categories = (Array.isArray(rawArr) ? rawArr : [])
-      .filter((c: string) => typeof c === 'string' && c.length > 0)
-      .map((c: string) => c.toLowerCase().trim());
-    const primary = (typeof item.primary === 'string' && item.primary.length > 0)
-      ? item.primary.toLowerCase().trim()
-      : categories[0];
+    const categories = (Array.isArray(rawArr) ? rawArr : []).filter((c: string) => typeof c === 'string' && c.length > 0).map((c: string) => c.toLowerCase().trim());
+    const primary = typeof item.primary === 'string' && item.primary.length > 0 ? item.primary.toLowerCase().trim() : categories[0];
 
     if (categories.length > 0 && primary) {
-      results.push({ id: item.id, categories, primary });
+      results.push({id: item.id, categories, primary});
     }
   }
   return results;
@@ -109,10 +107,8 @@ export interface LlmClassifyResult {
   batches: number;
 }
 
-export async function classifyWithLlm(
-  options: { engine: ResolvedEngine; onBatch?: (done: number, total: number) => void },
-): Promise<LlmClassifyResult> {
-  const { engine } = options;
+export async function classifyWithLlm(options: {engine: ResolvedEngine; onBatch?: (done: number, total: number) => void}): Promise<LlmClassifyResult> {
+  const {engine} = options;
 
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
@@ -126,14 +122,14 @@ export async function classifyWithLlm(
     );
 
     if (!rows.length || !rows[0].values.length) {
-      return { engine: engine.name, totalUnclassified: 0, classified: 0, failed: 0, batches: 0 };
+      return {engine: engine.name, totalUnclassified: 0, classified: 0, failed: 0, batches: 0};
     }
 
-    const unclassified: UnclassifiedBookmark[] = rows[0].values.map(r => ({
+    const unclassified: UnclassifiedBookmark[] = rows[0].values.map((r) => ({
       id: r[0] as string,
       text: r[1] as string,
       authorHandle: r[2] as string | null,
-      links: r[3] as string | null,
+      links: r[3] as string | null
     }));
 
     const totalUnclassified = unclassified.length;
@@ -144,7 +140,7 @@ export async function classifyWithLlm(
     // Process in batches
     for (let i = 0; i < unclassified.length; i += BATCH_SIZE) {
       const batch = unclassified.slice(i, i + BATCH_SIZE);
-      const batchIds = new Set(batch.map(b => b.id));
+      const batchIds = new Set(batch.map((b) => b.id));
       batchCount++;
 
       options.onBatch?.(i, totalUnclassified);
@@ -155,9 +151,7 @@ export async function classifyWithLlm(
         const results = parseResponse(raw, batchIds);
 
         // Update SQLite
-        const stmt = db.prepare(
-          `UPDATE bookmarks SET categories = ?, primary_category = ? WHERE id = ?`
-        );
+        const stmt = db.prepare(`UPDATE bookmarks SET categories = ?, primary_category = ? WHERE id = ?`);
         for (const r of results) {
           stmt.run([r.categories.join(','), r.primary, r.id]);
         }
@@ -174,7 +168,7 @@ export async function classifyWithLlm(
       }
     }
 
-    return { engine: engine.name, totalUnclassified, classified, failed, batches: batchCount };
+    return {engine: engine.name, totalUnclassified, classified, failed, batches: batchCount};
   } finally {
     db.close();
   }
@@ -190,10 +184,12 @@ interface DomainBookmark {
 }
 
 function buildDomainPrompt(bookmarks: DomainBookmark[]): string {
-  const items = bookmarks.map((b, i) => {
-    const cats = b.categories ? ` [${b.categories}]` : '';
-    return `[${i}] id=${b.id} @${b.authorHandle ?? 'unknown'}${cats}: <tweet_text>${sanitizeBookmarkText(b.text)}</tweet_text>`;
-  }).join('\n');
+  const items = bookmarks
+    .map((b, i) => {
+      const cats = b.categories ? ` [${b.categories}]` : '';
+      return `[${i}] id=${b.id} @${b.authorHandle ?? 'unknown'}${cats}: <tweet_text>${sanitizeBookmarkText(b.text)}</tweet_text>`;
+    })
+    .join('\n');
 
   return `Classify each bookmark by its SUBJECT DOMAIN — the topic or field it's about, NOT its format.
 
@@ -222,36 +218,40 @@ Bookmarks:
 ${items}`;
 }
 
-export async function classifyDomainsWithLlm(
-  options: { engine: ResolvedEngine; all?: boolean; onBatch?: (done: number, total: number) => void },
-): Promise<LlmClassifyResult> {
-  const { engine } = options;
+export async function classifyDomainsWithLlm(options: {engine: ResolvedEngine; all?: boolean; onBatch?: (done: number, total: number) => void}): Promise<LlmClassifyResult> {
+  const {engine} = options;
 
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
 
   // Ensure domain columns exist (migration from schema v2)
-  try { db.run('ALTER TABLE bookmarks ADD COLUMN domains TEXT'); } catch { /* already exists */ }
-  try { db.run('ALTER TABLE bookmarks ADD COLUMN primary_domain TEXT'); } catch { /* already exists */ }
+  try {
+    db.run('ALTER TABLE bookmarks ADD COLUMN domains TEXT');
+  } catch {
+    /* already exists */
+  }
+  try {
+    db.run('ALTER TABLE bookmarks ADD COLUMN primary_domain TEXT');
+  } catch {
+    /* already exists */
+  }
 
   try {
-    const where = options.all
-      ? '1=1'
-      : 'primary_domain IS NULL';
+    const where = options.all ? '1=1' : 'primary_domain IS NULL';
     const rows = db.exec(
       `SELECT id, text, author_handle, categories FROM bookmarks
        WHERE ${where} ORDER BY RANDOM()`
     );
 
     if (!rows.length || !rows[0].values.length) {
-      return { engine: engine.name, totalUnclassified: 0, classified: 0, failed: 0, batches: 0 };
+      return {engine: engine.name, totalUnclassified: 0, classified: 0, failed: 0, batches: 0};
     }
 
-    const bookmarks: DomainBookmark[] = rows[0].values.map(r => ({
+    const bookmarks: DomainBookmark[] = rows[0].values.map((r) => ({
       id: r[0] as string,
       text: r[1] as string,
       authorHandle: r[2] as string | null,
-      categories: r[3] as string | null,
+      categories: r[3] as string | null
     }));
 
     const total = bookmarks.length;
@@ -261,7 +261,7 @@ export async function classifyDomainsWithLlm(
 
     for (let i = 0; i < bookmarks.length; i += BATCH_SIZE) {
       const batch = bookmarks.slice(i, i + BATCH_SIZE);
-      const batchIds = new Set(batch.map(b => b.id));
+      const batchIds = new Set(batch.map((b) => b.id));
       batchCount++;
 
       options.onBatch?.(i, total);
@@ -272,9 +272,7 @@ export async function classifyDomainsWithLlm(
         // Reuse the same parse logic — structure is identical
         const results = parseResponse(raw, batchIds);
 
-        const stmt = db.prepare(
-          `UPDATE bookmarks SET domains = ?, primary_domain = ? WHERE id = ?`
-        );
+        const stmt = db.prepare(`UPDATE bookmarks SET domains = ?, primary_domain = ? WHERE id = ?`);
         for (const r of results) {
           stmt.run([r.categories.join(','), r.primary, r.id]);
         }
@@ -289,7 +287,7 @@ export async function classifyDomainsWithLlm(
       }
     }
 
-    return { engine: engine.name, totalUnclassified: total, classified, failed, batches: batchCount };
+    return {engine: engine.name, totalUnclassified: total, classified, failed, batches: batchCount};
   } finally {
     db.close();
   }

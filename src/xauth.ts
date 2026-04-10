@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
-import { URL } from 'node:url';
-import { pathExists, readJson, writeJson } from './fs.js';
-import { ensureDataDir, twitterOauthTokenPath } from './paths.js';
-import { loadXApiConfig } from './config.js';
-import type { XOAuthTokenSet } from './types.js';
+import {URL} from 'node:url';
+import {pathExists, readJson, writeJson} from './fs.js';
+import {ensureDataDir, twitterOauthTokenPath} from './paths.js';
+import {loadXApiConfig} from './config.js';
+import type {XOAuthTokenSet} from './types.js';
 
 function base64Url(input: Buffer): string {
   return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -14,16 +14,16 @@ function createPkce() {
   const verifier = base64Url(crypto.randomBytes(32));
   const challenge = base64Url(crypto.createHash('sha256').update(verifier).digest());
   const state = base64Url(crypto.randomBytes(16));
-  return { verifier, challenge, state };
+  return {verifier, challenge, state};
 }
 
-export function buildTwitterOAuthUrl(): { url: string; state: string; verifier: string } {
+export function buildTwitterOAuthUrl(): {url: string; state: string; verifier: string} {
   const cfg = loadXApiConfig();
   if (!cfg.callbackUrl) {
     throw new Error('Missing X_CALLBACK_URL in .env.local');
   }
 
-  const { verifier, challenge, state } = createPkce();
+  const {verifier, challenge, state} = createPkce();
   const url = new URL('https://twitter.com/i/oauth2/authorize');
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', cfg.clientId);
@@ -33,7 +33,7 @@ export function buildTwitterOAuthUrl(): { url: string; state: string; verifier: 
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
 
-  return { url: url.toString(), state, verifier };
+  return {url: url.toString(), state, verifier};
 }
 
 async function exchangeCodeForToken(code: string, verifier: string): Promise<XOAuthTokenSet> {
@@ -48,16 +48,16 @@ async function exchangeCodeForToken(code: string, verifier: string): Promise<XOA
     code,
     redirect_uri: cfg.callbackUrl,
     code_verifier: verifier,
-    client_id: cfg.clientId,
+    client_id: cfg.clientId
   });
 
   const response = await fetch('https://api.x.com/2/oauth2/token', {
     method: 'POST',
     headers: {
       Authorization: `Basic ${basic}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/x-www-form-urlencoded'
     },
-    body,
+    body
   });
 
   const text = await response.text();
@@ -72,16 +72,16 @@ async function exchangeCodeForToken(code: string, verifier: string): Promise<XOA
     expires_in: parsed.expires_in,
     scope: parsed.scope,
     token_type: parsed.token_type,
-    obtained_at: new Date().toISOString(),
+    obtained_at: new Date().toISOString()
   };
 }
 
 export async function saveTwitterOAuthToken(token: XOAuthTokenSet): Promise<string> {
   ensureDataDir();
   const tokenPath = twitterOauthTokenPath();
-  await writeJson(tokenPath, token, { mode: 0o600 });
+  await writeJson(tokenPath, token, {mode: 0o600});
   // Restrict permissions — OAuth tokens should only be readable by the owner
-  const { chmod } = await import('node:fs/promises');
+  const {chmod} = await import('node:fs/promises');
   await chmod(tokenPath, 0o600);
   return tokenPath;
 }
@@ -92,13 +92,13 @@ export async function loadTwitterOAuthToken(): Promise<XOAuthTokenSet | null> {
   return readJson<XOAuthTokenSet>(tokenPath);
 }
 
-export async function runTwitterOAuthFlow(): Promise<{ tokenPath: string; scope?: string }> {
+export async function runTwitterOAuthFlow(): Promise<{tokenPath: string; scope?: string}> {
   const cfg = loadXApiConfig();
   if (!cfg.callbackUrl) {
     throw new Error('Missing X_CALLBACK_URL in .env.local');
   }
 
-  const { url, state, verifier } = buildTwitterOAuthUrl();
+  const {url, state, verifier} = buildTwitterOAuthUrl();
   const callback = new URL(cfg.callbackUrl);
   const port = Number(callback.port || 80);
   const pathname = callback.pathname;
@@ -151,5 +151,5 @@ export async function runTwitterOAuthFlow(): Promise<{ tokenPath: string; scope?
 
   const token = await exchangeCodeForToken(code, verifier);
   const tokenPath = await saveTwitterOAuthToken(token);
-  return { tokenPath, scope: token.scope };
+  return {tokenPath, scope: token.scope};
 }

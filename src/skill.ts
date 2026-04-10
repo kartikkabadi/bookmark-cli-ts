@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { promptText } from './prompt.js';
+import {promptText} from './prompt.js';
 
 // ── Skill content ────────────────────────────────────────────────────────────
 
@@ -78,13 +78,13 @@ function detectAgents(): Agent[] {
     {
       name: 'Claude Code',
       detected: fs.existsSync(path.join(home, '.claude')),
-      installPath: path.join(home, '.claude', 'commands', 'fieldtheory.md'),
+      installPath: path.join(home, '.claude', 'commands', 'fieldtheory.md')
     },
     {
       name: 'Codex',
       detected: fs.existsSync(path.join(home, '.codex')),
-      installPath: path.join(home, '.codex', 'instructions', 'fieldtheory.md'),
-    },
+      installPath: path.join(home, '.codex', 'instructions', 'fieldtheory.md')
+    }
   ];
 }
 
@@ -106,14 +106,14 @@ export async function installSkill(): Promise<SkillResult[]> {
     targets.push({
       name: 'Claude Code',
       detected: false,
-      installPath: path.join(home, '.claude', 'commands', 'fieldtheory.md'),
+      installPath: path.join(home, '.claude', 'commands', 'fieldtheory.md')
     });
   }
 
   const results: SkillResult[] = [];
   for (const agent of targets) {
     const dir = path.dirname(agent.installPath);
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, {recursive: true});
 
     const content = agent.name === 'Codex' ? skillBody() : skillWithFrontmatter();
     const exists = fs.existsSync(agent.installPath);
@@ -121,7 +121,7 @@ export async function installSkill(): Promise<SkillResult[]> {
     if (exists) {
       const existing = fs.readFileSync(agent.installPath, 'utf-8');
       if (existing === content) {
-        results.push({ agent: agent.name, path: agent.installPath, action: 'up-to-date' });
+        results.push({agent: agent.name, path: agent.installPath, action: 'up-to-date'});
         continue;
       }
 
@@ -142,7 +142,7 @@ export async function installSkill(): Promise<SkillResult[]> {
     }
 
     fs.writeFileSync(agent.installPath, content, 'utf-8');
-    results.push({ agent: agent.name, path: agent.installPath, action: exists ? 'updated' : 'installed' });
+    results.push({agent: agent.name, path: agent.installPath, action: exists ? 'updated' : 'installed'});
   }
   return results;
 }
@@ -153,7 +153,7 @@ export function uninstallSkill(): SkillResult[] {
   for (const agent of detected) {
     if (fs.existsSync(agent.installPath)) {
       fs.unlinkSync(agent.installPath);
-      results.push({ agent: agent.name, path: agent.installPath, action: 'removed' });
+      results.push({agent: agent.name, path: agent.installPath, action: 'removed'});
     }
   }
   return results;

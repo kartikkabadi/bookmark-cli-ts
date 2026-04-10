@@ -1,12 +1,9 @@
-export type PromptResult =
-  | { kind: 'answer'; value: string }
-  | { kind: 'close' }
-  | { kind: 'interrupt' };
+export type PromptResult = {kind: 'answer'; value: string} | {kind: 'close'} | {kind: 'interrupt'};
 
 export class PromptCancelledError extends Error {
   constructor(
     message: string,
-    readonly exitCode: number,
+    readonly exitCode: number
   ) {
     super(message);
     this.name = 'PromptCancelledError';
@@ -42,28 +39,28 @@ export function promptWithInterface(rl: PromptInterface, question: string): Prom
     };
 
     const onClose = () => {
-      settle({ kind: 'close' });
+      settle({kind: 'close'});
     };
 
     const onSigint = () => {
-      settle({ kind: 'interrupt' });
+      settle({kind: 'interrupt'});
       rl.close();
     };
 
     rl.once('close', onClose);
     rl.once('SIGINT', onSigint);
     rl.question(question, (answer) => {
-      settle({ kind: 'answer', value: answer.trim() });
+      settle({kind: 'answer', value: answer.trim()});
       rl.close();
     });
   });
 }
 
 export async function promptText(question: string, options: PromptOptions = {}): Promise<PromptResult> {
-  const { createInterface } = await import('node:readline');
+  const {createInterface} = await import('node:readline');
   const rl = createInterface({
     input: options.input ?? process.stdin,
-    output: options.output ?? process.stderr,
+    output: options.output ?? process.stderr
   });
   return promptWithInterface(rl, question);
 }

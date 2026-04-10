@@ -1,6 +1,6 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir, platform } from 'node:os';
+import {existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {homedir, platform} from 'node:os';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,55 +31,49 @@ const BROWSERS: BrowserDef[] = [
     displayName: 'Google Chrome',
     cookieBackend: 'chromium',
     keychainEntries: [
-      { service: 'Chrome Safe Storage', account: 'Chrome' },
-      { service: 'Chrome Safe Storage', account: 'Google Chrome' },
-      { service: 'Google Chrome Safe Storage', account: 'Chrome' },
-      { service: 'Google Chrome Safe Storage', account: 'Google Chrome' },
+      {service: 'Chrome Safe Storage', account: 'Chrome'},
+      {service: 'Chrome Safe Storage', account: 'Google Chrome'},
+      {service: 'Google Chrome Safe Storage', account: 'Chrome'},
+      {service: 'Google Chrome Safe Storage', account: 'Google Chrome'}
     ],
     macPath: 'Library/Application Support/Google/Chrome',
     linuxPath: '.config/google-chrome',
-    winPath: 'AppData/Local/Google/Chrome/User Data',
+    winPath: 'AppData/Local/Google/Chrome/User Data'
   },
   {
     id: 'chromium',
     displayName: 'Chromium',
     cookieBackend: 'chromium',
-    keychainEntries: [
-      { service: 'Chromium Safe Storage', account: 'Chromium' },
-    ],
+    keychainEntries: [{service: 'Chromium Safe Storage', account: 'Chromium'}],
     macPath: 'Library/Application Support/Chromium',
     linuxPath: '.config/chromium',
-    winPath: 'AppData/Local/Chromium/User Data',
+    winPath: 'AppData/Local/Chromium/User Data'
   },
   {
     id: 'brave',
     displayName: 'Brave',
     cookieBackend: 'chromium',
     keychainEntries: [
-      { service: 'Brave Safe Storage', account: 'Brave' },
-      { service: 'Brave Browser Safe Storage', account: 'Brave Browser' },
+      {service: 'Brave Safe Storage', account: 'Brave'},
+      {service: 'Brave Browser Safe Storage', account: 'Brave Browser'}
     ],
     macPath: 'Library/Application Support/BraveSoftware/Brave-Browser',
     linuxPath: '.config/BraveSoftware/Brave-Browser',
-    winPath: 'AppData/Local/BraveSoftware/Brave-Browser/User Data',
+    winPath: 'AppData/Local/BraveSoftware/Brave-Browser/User Data'
   },
   {
     id: 'helium',
     displayName: 'Helium',
     cookieBackend: 'chromium',
-    keychainEntries: [
-      { service: 'Helium Storage Key', account: 'Helium' },
-    ],
-    macPath: 'Library/Application Support/net.imput.helium',
+    keychainEntries: [{service: 'Helium Storage Key', account: 'Helium'}],
+    macPath: 'Library/Application Support/net.imput.helium'
   },
   {
     id: 'comet',
     displayName: 'Comet',
     cookieBackend: 'chromium',
-    keychainEntries: [
-      { service: 'Comet Safe Storage', account: 'Comet' },
-    ],
-    macPath: 'Library/Application Support/Comet',
+    keychainEntries: [{service: 'Comet Safe Storage', account: 'Comet'}],
+    macPath: 'Library/Application Support/Comet'
   },
   {
     id: 'firefox',
@@ -87,27 +81,24 @@ const BROWSERS: BrowserDef[] = [
     cookieBackend: 'firefox',
     keychainEntries: [],
     macPath: 'Library/Application Support/Firefox',
-    linuxPath: '.mozilla/firefox',
-  },
+    linuxPath: '.mozilla/firefox'
+  }
 ];
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export function getBrowser(id: string): BrowserDef {
   const normalized = id.trim().toLowerCase();
-  const found = BROWSERS.find(b => b.id === normalized);
+  const found = BROWSERS.find((b) => b.id === normalized);
   if (!found) {
-    const supported = BROWSERS.map(b => b.id).join(', ');
-    throw new Error(
-      `Unknown browser: "${id}"\n` +
-      `Supported browsers: ${supported}`
-    );
+    const supported = BROWSERS.map((b) => b.id).join(', ');
+    throw new Error(`Unknown browser: "${id}"\n` + `Supported browsers: ${supported}`);
   }
   return found;
 }
 
 export function listBrowserIds(): string[] {
-  return BROWSERS.map(b => b.id);
+  return BROWSERS.map((b) => b.id);
 }
 
 export function browserUserDataDir(browser: BrowserDef): string | undefined {
@@ -121,7 +112,7 @@ export function browserUserDataDir(browser: BrowserDef): string | undefined {
 
 /** Return the first installed chromium-family browser, or 'chrome' as default. */
 export function detectBrowser(): BrowserDef {
-  const chromiumBrowsers = BROWSERS.filter(b => b.cookieBackend === 'chromium');
+  const chromiumBrowsers = BROWSERS.filter((b) => b.cookieBackend === 'chromium');
   for (const browser of chromiumBrowsers) {
     const dir = browserUserDataDir(browser);
     if (dir && existsSync(dir)) return browser;

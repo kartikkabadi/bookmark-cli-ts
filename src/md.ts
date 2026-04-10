@@ -14,31 +14,22 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensureDir, pathExists, readJson, writeMd, appendLine, writeJson, listFiles, readMd } from './fs.js';
-import {
-  mdDir, mdIndexPath, mdLogPath, mdStatePath, mdSchemaPath,
-  mdCategoriesDir, mdDomainsDir, mdEntitiesDir, mdConceptsDir,
-} from './paths.js';
-import {
-  getCategoryCounts, getDomainCounts, sampleByCategory, sampleByDomain,
-  sampleByAuthor, getTopAuthorHandles, openBookmarksDb, type CategorySample,
-} from './bookmarks-db.js';
-import { resolveEngine, invokeEngineAsync, type ResolvedEngine } from './engine.js';
-import {
-  buildCategoryPagePrompt, buildDomainPagePrompt, buildEntityPagePrompt,
-  type MdBookmark,
-} from './md-prompts.js';
+import {ensureDir, pathExists, readJson, writeMd, appendLine, writeJson, listFiles, readMd} from './fs.js';
+import {mdDir, mdIndexPath, mdLogPath, mdStatePath, mdSchemaPath, mdCategoriesDir, mdDomainsDir, mdEntitiesDir, mdConceptsDir} from './paths.js';
+import {getCategoryCounts, getDomainCounts, sampleByCategory, sampleByDomain, sampleByAuthor, getTopAuthorHandles, openBookmarksDb, type CategorySample} from './bookmarks-db.js';
+import {resolveEngine, invokeEngineAsync, type ResolvedEngine} from './engine.js';
+import {buildCategoryPagePrompt, buildDomainPagePrompt, buildEntityPagePrompt, type MdBookmark} from './md-prompts.js';
 
 const MIN_CATEGORY_COUNT = 5;
-const MIN_DOMAIN_COUNT   = 5;
-const MIN_ENTITY_COUNT   = 10;
-const MAX_SAMPLE_SIZE    = 50;
+const MIN_DOMAIN_COUNT = 5;
+const MIN_ENTITY_COUNT = 10;
+const MAX_SAMPLE_SIZE = 50;
 
 /** Scale timeout by sample count — large categories need more time. */
 function llmOpts(sampleCount: number) {
   // Base 120s + 2s per bookmark sampled, capped at 10 min
   const timeout = Math.min(120_000 + sampleCount * 2_000, 600_000);
-  return { timeout, maxBuffer: 1024 * 1024 * 4 };
+  return {timeout, maxBuffer: 1024 * 1024 * 4};
 }
 
 export interface MdState {
@@ -69,7 +60,10 @@ function sha256(text: string): string {
 }
 
 export function slug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 async function loadMdState(): Promise<MdState> {
@@ -77,13 +71,15 @@ async function loadMdState(): Promise<MdState> {
   if (await pathExists(statePath)) {
     try {
       return await readJson<MdState>(statePath);
-    } catch { /* corrupt state → fresh compile */ }
+    } catch {
+      /* corrupt state → fresh compile */
+    }
   }
   return {
     lastCompileAt: new Date(0).toISOString(),
     totalCompiles: 0,
     groupCounts: {},
-    pageHashes: {},
+    pageHashes: {}
   };
 }
 
@@ -98,16 +94,11 @@ function mapToMdBookmarks(samples: CategorySample[]): MdBookmark[] {
     text: s.text,
     authorHandle: s.authorHandle,
     categories: s.categories,
-    githubUrls: s.githubUrls,
+    githubUrls: s.githubUrls
   }));
 }
 
-async function writePage(
-  filePath: string,
-  content: string,
-  state: MdState,
-  relPath: string,
-): Promise<'created' | 'updated' | 'unchanged'> {
+async function writePage(filePath: string, content: string, state: MdState, relPath: string): Promise<'created' | 'updated' | 'unchanged'> {
   const hash = sha256(content);
   const existing = state.pageHashes[relPath];
   if (existing === hash) return 'unchanged';
@@ -172,23 +163,13 @@ When bookmarks in a group disagree, note it explicitly:
 }
 
 async function generateIndex(): Promise<string> {
-  const categoryFiles = (await listFiles(mdCategoriesDir())).filter(f => f.endsWith('.md')).sort();
-  const domainFiles   = (await listFiles(mdDomainsDir())).filter(f => f.endsWith('.md')).sort();
-  const entityFiles   = (await listFiles(mdEntitiesDir())).filter(f => f.endsWith('.md')).sort();
-  const conceptFiles  = (await listFiles(mdConceptsDir())).filter(f => f.endsWith('.md')).sort();
+  const categoryFiles = (await listFiles(mdCategoriesDir())).filter((f) => f.endsWith('.md')).sort();
+  const domainFiles = (await listFiles(mdDomainsDir())).filter((f) => f.endsWith('.md')).sort();
+  const entityFiles = (await listFiles(mdEntitiesDir())).filter((f) => f.endsWith('.md')).sort();
+  const conceptFiles = (await listFiles(mdConceptsDir())).filter((f) => f.endsWith('.md')).sort();
 
   const now = new Date().toISOString().slice(0, 10);
-  const lines: string[] = [
-    `---`,
-    `tags: [ft/index]`,
-    `last_updated: ${now}`,
-    `---`,
-    ``,
-    `# FT Knowledge Base Index`,
-    ``,
-    `Auto-generated catalog. Edit individual pages, not this file.`,
-    ``,
-  ];
+  const lines: string[] = [`---`, `tags: [ft/index]`, `last_updated: ${now}`, `---`, ``, `# FT Knowledge Base Index`, ``, `Auto-generated catalog. Edit individual pages, not this file.`, ``];
 
   if (categoryFiles.length > 0) {
     lines.push(`## Categories (${categoryFiles.length})`);
@@ -228,19 +209,24 @@ export function logEntry(type: string, detail: string): string {
 }
 
 export async function compileMd(options: CompileOptions = {}): Promise<CompileResult> {
-  const progress  = options.onProgress ?? ((s: string) => fs.writeSync(2, s + '\n'));
+  const progress = options.onProgress ?? ((s: string) => fs.writeSync(2, s + '\n'));
   const startTime = Date.now();
-  const onlySet   = options.only ? new Set(options.only) : null;
+  const onlySet = options.only ? new Set(options.only) : null;
 
   // ── Lock file to prevent concurrent runs ──────────────────────────────
   const lockPath = path.join(mdDir(), '.lock');
   await ensureDir(mdDir());
   try {
-    fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+    fs.writeFileSync(lockPath, String(process.pid), {flag: 'wx'});
   } catch {
     const existingPid = fs.readFileSync(lockPath, 'utf8').trim();
     let alive = false;
-    try { process.kill(Number(existingPid), 0); alive = true; } catch { /* not running */ }
+    try {
+      process.kill(Number(existingPid), 0);
+      alive = true;
+    } catch {
+      /* not running */
+    }
     if (alive) {
       throw new Error(`Another ft md is already running (pid ${existingPid}). Wait for it to finish or remove ${lockPath}`);
     }
@@ -251,16 +237,15 @@ export async function compileMd(options: CompileOptions = {}): Promise<CompileRe
   try {
     return await doCompile(options, progress, startTime, onlySet);
   } finally {
-    try { fs.unlinkSync(lockPath); } catch { /* best effort */ }
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      /* best effort */
+    }
   }
 }
 
-async function doCompile(
-  options: CompileOptions,
-  progress: (s: string) => void,
-  startTime: number,
-  onlySet: Set<string> | null,
-): Promise<CompileResult> {
+async function doCompile(options: CompileOptions, progress: (s: string) => void, startTime: number, onlySet: Set<string> | null): Promise<CompileResult> {
   const engine = await resolveEngine();
 
   progress('Initializing md directories...');
@@ -278,7 +263,7 @@ async function doCompile(
   let pagesCreated = 0;
   let pagesUpdated = 0;
   let pagesSkipped = 0;
-  let pagesFailed  = 0;
+  let pagesFailed = 0;
 
   const db = await openBookmarksDb();
 
@@ -286,8 +271,8 @@ async function doCompile(
     // ── Scan all groups up front so we can show a plan ───────────────────
     progress('Scanning bookmarks...');
     const categoryCounts = await getCategoryCounts(db);
-    const domainCounts   = await getDomainCounts(db);
-    const topAuthors     = await getTopAuthorHandles(MIN_ENTITY_COUNT, db);
+    const domainCounts = await getDomainCounts(db);
+    const topAuthors = await getTopAuthorHandles(MIN_ENTITY_COUNT, db);
 
     // Build the work queue: everything that needs an LLM call
     interface WorkItem {
@@ -303,23 +288,32 @@ async function doCompile(
       if (count < MIN_CATEGORY_COUNT) continue;
       const key = `categories/${category}`;
       if (onlySet && !onlySet.has(key)) continue;
-      if (!isFullCompile && !onlySet && !hasChanged(state, key, count)) { skipCount++; continue; }
-      toGenerate.push({ key, type: 'category', name: category, count });
+      if (!isFullCompile && !onlySet && !hasChanged(state, key, count)) {
+        skipCount++;
+        continue;
+      }
+      toGenerate.push({key, type: 'category', name: category, count});
     }
 
     for (const [domain, count] of Object.entries(domainCounts)) {
       if (count < MIN_DOMAIN_COUNT) continue;
       const key = `domains/${domain}`;
       if (onlySet && !onlySet.has(key)) continue;
-      if (!isFullCompile && !onlySet && !hasChanged(state, key, count)) { skipCount++; continue; }
-      toGenerate.push({ key, type: 'domain', name: domain, count });
+      if (!isFullCompile && !onlySet && !hasChanged(state, key, count)) {
+        skipCount++;
+        continue;
+      }
+      toGenerate.push({key, type: 'domain', name: domain, count});
     }
 
-    for (const { handle, count } of topAuthors) {
+    for (const {handle, count} of topAuthors) {
       const key = `entities/${handle}`;
       if (onlySet && !onlySet.has(key)) continue;
-      if (!isFullCompile && !onlySet && !hasChanged(state, key, count)) { skipCount++; continue; }
-      toGenerate.push({ key, type: 'entity', name: handle, count });
+      if (!isFullCompile && !onlySet && !hasChanged(state, key, count)) {
+        skipCount++;
+        continue;
+      }
+      toGenerate.push({key, type: 'entity', name: handle, count});
     }
 
     pagesSkipped = skipCount;
@@ -342,13 +336,13 @@ async function doCompile(
       let prompt: string;
       if (item.type === 'category') {
         samples = await sampleByCategory(item.name, MAX_SAMPLE_SIZE, db);
-        prompt  = buildCategoryPagePrompt(item.name, mapToMdBookmarks(samples));
+        prompt = buildCategoryPagePrompt(item.name, mapToMdBookmarks(samples));
       } else if (item.type === 'domain') {
         samples = await sampleByDomain(item.name, MAX_SAMPLE_SIZE, db);
-        prompt  = buildDomainPagePrompt(item.name, mapToMdBookmarks(samples));
+        prompt = buildDomainPagePrompt(item.name, mapToMdBookmarks(samples));
       } else {
         samples = await sampleByAuthor(item.name, MAX_SAMPLE_SIZE, db);
-        prompt  = buildEntityPagePrompt(item.name, mapToMdBookmarks(samples));
+        prompt = buildEntityPagePrompt(item.name, mapToMdBookmarks(samples));
       }
 
       const opts = llmOpts(samples.length);
@@ -365,11 +359,10 @@ async function doCompile(
         continue;
       }
 
-      const dirFn = item.type === 'category' ? mdCategoriesDir
-        : item.type === 'domain' ? mdDomainsDir : mdEntitiesDir;
+      const dirFn = item.type === 'category' ? mdCategoriesDir : item.type === 'domain' ? mdDomainsDir : mdEntitiesDir;
       const filePath = path.join(dirFn(), `${slug(item.name)}.md`);
-      const relPath  = `${item.type === 'category' ? 'categories' : item.type === 'domain' ? 'domains' : 'entities'}/${slug(item.name)}.md`;
-      const outcome  = await writePage(filePath, content, state, relPath);
+      const relPath = `${item.type === 'category' ? 'categories' : item.type === 'domain' ? 'domains' : 'entities'}/${slug(item.name)}.md`;
+      const outcome = await writePage(filePath, content, state, relPath);
       state.groupCounts[item.key] = String(item.count);
 
       if (outcome === 'created') pagesCreated++;
@@ -393,15 +386,12 @@ async function doCompile(
   // ── Log entry ───────────────────────────────────────────────────────────
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   const totalPages = pagesCreated + pagesUpdated;
-  await appendLine(
-    mdLogPath(),
-    logEntry('compile', `engine=${engine.name} created=${pagesCreated} updated=${pagesUpdated} skipped=${pagesSkipped} failed=${pagesFailed} elapsed=${elapsed}s`),
-  );
+  await appendLine(mdLogPath(), logEntry('compile', `engine=${engine.name} created=${pagesCreated} updated=${pagesUpdated} skipped=${pagesSkipped} failed=${pagesFailed} elapsed=${elapsed}s`));
 
   // ── Save state ───────────────────────────────────────────────────────────
-  state.lastCompileAt  = new Date().toISOString();
-  state.totalCompiles  = (state.totalCompiles ?? 0) + 1;
+  state.lastCompileAt = new Date().toISOString();
+  state.totalCompiles = (state.totalCompiles ?? 0) + 1;
   await writeJson(mdStatePath(), state);
 
-  return { engine: engine.name, pagesCreated, pagesUpdated, pagesSkipped, pagesFailed, totalPages, elapsed };
+  return {engine: engine.name, pagesCreated, pagesUpdated, pagesSkipped, pagesFailed, totalPages, elapsed};
 }

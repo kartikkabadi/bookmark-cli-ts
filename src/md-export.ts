@@ -12,10 +12,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensureDir, writeMd } from './fs.js';
-import { mdDir } from './paths.js';
-import { listBookmarks, countBookmarks, type BookmarkTimelineItem } from './bookmarks-db.js';
-import { slug } from './md.js';
+import {ensureDir, writeMd} from './fs.js';
+import {mdDir} from './paths.js';
+import {listBookmarks, countBookmarks, type BookmarkTimelineItem} from './bookmarks-db.js';
+import {slug} from './md.js';
 
 export interface ExportOptions {
   force?: boolean;
@@ -119,7 +119,9 @@ export async function exportBookmarks(options: ExportOptions = {}): Promise<Expo
       for (const f of files) {
         if (f.endsWith('.md')) existingFiles.add(f);
       }
-    } catch { /* dir may not exist yet */ }
+    } catch {
+      /* dir may not exist yet */
+    }
   }
 
   let exported = 0;
@@ -128,7 +130,7 @@ export async function exportBookmarks(options: ExportOptions = {}): Promise<Expo
   let offset = 0;
 
   while (offset < total) {
-    const bookmarks = await listBookmarks({ limit: batchSize, offset, sort: 'desc' });
+    const bookmarks = await listBookmarks({limit: batchSize, offset, sort: 'desc'});
     if (bookmarks.length === 0) break;
 
     for (const b of bookmarks) {
@@ -153,5 +155,5 @@ export async function exportBookmarks(options: ExportOptions = {}): Promise<Expo
   }
 
   const elapsed = Math.round((Date.now() - startTime) / 1000);
-  return { exported, skipped, total, elapsed };
+  return {exported, skipped, total, elapsed};
 }

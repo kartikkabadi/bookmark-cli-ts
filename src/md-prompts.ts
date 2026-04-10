@@ -26,7 +26,7 @@ export interface MdBookmark {
  */
 export function sanitizeForPrompt(text: string, maxLen = 400): string {
   return text
-    .replace(/[\r\n]+/g, ' ')                                              // collapse newlines first
+    .replace(/[\r\n]+/g, ' ') // collapse newlines first
     .replace(/ignore\s+(previous|above|all)\s+instructions?/gi, '[filtered]')
     .replace(/disregard\s+(previous|above|all)\s+/gi, '[filtered]')
     .replace(/you\s+are\s+now\s+/gi, '[filtered]')
@@ -67,12 +67,14 @@ Inline citations: "Some claim ([source](https://...))".
 Do not make up facts beyond what is in the bookmark data.`.trim();
 
 function formatBookmarks(bookmarks: MdBookmark[]): string {
-  return bookmarks.map((b, i) => {
-    const author = b.authorHandle ? `@${b.authorHandle}` : 'unknown';
-    const cats = b.categories ? ` [${b.categories}]` : '';
-    const text = sanitizeForPrompt(b.text);
-    return `[${i + 1}] ${author}${cats}\nURL: ${b.url}\n${text}`;
-  }).join('\n\n');
+  return bookmarks
+    .map((b, i) => {
+      const author = b.authorHandle ? `@${b.authorHandle}` : 'unknown';
+      const cats = b.categories ? ` [${b.categories}]` : '';
+      const text = sanitizeForPrompt(b.text);
+      return `[${i + 1}] ${author}${cats}\nURL: ${b.url}\n${text}`;
+    })
+    .join('\n\n');
 }
 
 export function buildCategoryPagePrompt(category: string, bookmarks: MdBookmark[]): string {
@@ -193,9 +195,7 @@ Now write the wiki page. Output ONLY the markdown — no preamble, no explanatio
 }
 
 export function buildAskPrompt(question: string, mdContext: string, rawBookmarks: MdBookmark[]): string {
-  const bookmarkSection = rawBookmarks.length > 0
-    ? `\n## Raw Source Data\n${formatBookmarks(rawBookmarks)}`
-    : '';
+  const bookmarkSection = rawBookmarks.length > 0 ? `\n## Raw Source Data\n${formatBookmarks(rawBookmarks)}` : '';
 
   return `You are answering a question about the user's personal knowledge base of saved bookmarks.
 
