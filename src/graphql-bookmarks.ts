@@ -1,4 +1,4 @@
-import {ensureDir, readJsonLines, writeJsonLines, readJson, writeJson, pathExists} from './fs.js';
+import {readJsonLines, writeJsonLines, readJson, writeJson, pathExists} from './fs.js';
 import {ensureDataDir, twitterBookmarksCachePath, twitterBookmarksMetaPath, twitterBackfillStatePath, twitterGapfillStatePath} from './paths.js';
 import {loadChromeSessionConfig} from './config.js';
 import {extractChromeXCookies} from './chrome-cookies.js';

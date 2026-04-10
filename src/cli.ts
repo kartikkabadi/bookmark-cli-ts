@@ -86,14 +86,7 @@ function friendlyStopReason(raw?: string): string {
   return FRIENDLY_STOP_REASONS[raw] ?? `Sync complete \u2014 ${raw}`;
 }
 
-function warnIfEmpty(totalBookmarks: number): void {
-  if (totalBookmarks > 0) return;
-  console.log(`  \u26a0 No bookmarks were found. This usually means:`);
-  console.log(`    \u2022 The browser needs to be fully quit first (Cmd+Q / close all windows)`);
-  console.log(`    \u2022 Keychain/keyring access was denied`);
-  console.log(`    \u2022 You may be logged into a different profile than the one with X/Twitter`);
-  console.log(`    \u2022 Try: ft sync --cookies <ct0> <auth_token>  (paste from DevTools)\n`);
-}
+
 
 // ── Update checker ────────────────────────────────────────────────────────
 
@@ -390,7 +383,6 @@ export function buildCli() {
     .action(async (options) => {
       await runSyncCommand(options, {
         firstRun: isFirstRun(),
-        isFirstRun,
         showSyncWelcome,
         ensureDataDir,
         createSpinner,

@@ -36,8 +36,10 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 | Command | Description |
 |---------|-------------|
 | `ft sync` | Download and sync bookmarks (no API required) |
-| `ft sync --full` | Full history crawl (not just incremental) |
+| `ft sync --rebuild` | Full history crawl (not just incremental) |
 | `ft sync --gaps` | Backfill missing quoted tweets and expand truncated articles |
+| `ft sync --continue` | Resume a previous sync that was interrupted or hit the page limit |
+| `ft sync --yes` | Skip confirmation prompts |
 | `ft sync --classify` | Sync then classify new bookmarks with LLM |
 | `ft sync --api` | Sync via OAuth API (cross-platform) |
 | `ft auth` | Set up OAuth for API-based sync (optional) |

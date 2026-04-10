@@ -113,14 +113,13 @@ export async function runSyncCommand(
   options: SyncCommandOptions,
   callbacks: {
     firstRun: boolean
-    isFirstRun: () => boolean
     showSyncWelcome: () => void
     ensureDataDir: () => void
     createSpinner: (renderLine: () => string) => {update: () => void; stop: () => void}
     runWithSpinner: <T>(spinner: {stop: () => void}, fn: () => Promise<T>) => Promise<T>
   }
 ): Promise<void> {
-  const {firstRun, isFirstRun, showSyncWelcome, ensureDataDir, createSpinner, runWithSpinner} = callbacks
+  const {firstRun, showSyncWelcome, ensureDataDir, createSpinner, runWithSpinner} = callbacks
 
   if (firstRun) showSyncWelcome()
   ensureDataDir()

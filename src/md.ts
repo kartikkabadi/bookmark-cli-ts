@@ -14,10 +14,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import {ensureDir, pathExists, readJson, writeMd, appendLine, writeJson, listFiles, readMd} from './fs.js';
+import {ensureDir, pathExists, readJson, writeMd, appendLine, writeJson, listFiles} from './fs.js';
 import {mdDir, mdIndexPath, mdLogPath, mdStatePath, mdSchemaPath, mdCategoriesDir, mdDomainsDir, mdEntitiesDir, mdConceptsDir} from './paths.js';
 import {getCategoryCounts, getDomainCounts, sampleByCategory, sampleByDomain, sampleByAuthor, getTopAuthorHandles, openBookmarksDb, type CategorySample} from './bookmarks-db.js';
-import {resolveEngine, invokeEngineAsync, type ResolvedEngine} from './engine.js';
+import {resolveEngine, invokeEngineAsync} from './engine.js';
 import {buildCategoryPagePrompt, buildDomainPagePrompt, buildEntityPagePrompt, type MdBookmark} from './md-prompts.js';
 
 const MIN_CATEGORY_COUNT = 5;
