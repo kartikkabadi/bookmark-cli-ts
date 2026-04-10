@@ -6,6 +6,49 @@ import type {BookmarkRecord, QuotedTweetSnapshot} from './types.js';
 import {classifyCorpus, formatClassificationSummary} from './bookmark-classify.js';
 import type {ClassificationSummary} from './bookmark-classify.js';
 
+// ── Date Validation ─────────────────────────────────────────────────────
+
+/**
+ * Validate a date string is in YYYY-MM-DD format and is a real calendar date.
+ *
+ * @param flagName - The CLI flag name for error messages (e.g. '--after')
+ * @throws Error with descriptive message for invalid dates
+ */
+export function validateDate(dateStr: string, flagName?: string): string {
+  if (!dateStr || typeof dateStr !== 'string' || !dateStr.trim()) {
+    const flag = flagName ? ` for ${flagName}` : '';
+    throw new Error(`Invalid date format${flag}: "${dateStr}". Use YYYY-MM-DD.`);
+  }
+
+  const trimmed = dateStr.trim();
+
+  // Strict YYYY-MM-DD pattern: exactly 4 digits, dash, exactly 2 digits, dash, exactly 2 digits
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const flag = flagName ? ` for ${flagName}` : '';
+    throw new Error(`Invalid date format${flag}: "${trimmed}". Use YYYY-MM-DD.`);
+  }
+
+  const [yearStr, monthStr, dayStr] = trimmed.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+
+  // Check month range
+  if (month < 1 || month > 12) {
+    const flag = flagName ? ` for ${flagName}` : '';
+    throw new Error(`Invalid date format${flag}: "${trimmed}". Use YYYY-MM-DD.`);
+  }
+
+  // Check day range for the specific month
+  const daysInMonth = new Date(year, month, 0).getDate();
+  if (day < 1 || day > daysInMonth) {
+    const flag = flagName ? ` for ${flagName}` : '';
+    throw new Error(`Invalid date format${flag}: "${trimmed}". Use YYYY-MM-DD.`);
+  }
+
+  return trimmed;
+}
+
 const SCHEMA_VERSION = 4;
 
 export interface SearchResult {

@@ -6,7 +6,7 @@ import {runTwitterOAuthFlow} from './xauth.js';
 import {syncBookmarksGraphQL, syncGaps} from './graphql-bookmarks.js';
 import type {SyncProgress, GapFillProgress} from './graphql-bookmarks.js';
 import {fetchBookmarkMediaBatch} from './bookmark-media.js';
-import {buildIndex, searchBookmarks, formatSearchResults, getStats, classifyAndRebuild, getCategoryCounts, sampleByCategory, getDomainCounts, listBookmarks, getBookmarkById} from './bookmarks-db.js';
+import {buildIndex, searchBookmarks, formatSearchResults, getStats, classifyAndRebuild, getCategoryCounts, sampleByCategory, getDomainCounts, listBookmarks, getBookmarkById, validateDate} from './bookmarks-db.js';
 import {formatClassificationSummary} from './bookmark-classify.js';
 import {classifyWithLlm, classifyDomainsWithLlm} from './bookmark-classify-llm.js';
 import {resolveEngine, detectAvailableEngines} from './engine.js';
@@ -664,6 +664,8 @@ export function buildCli() {
     .action(
       safe(async (query: string, options) => {
         if (!requireIndex()) return;
+        if (options.after) validateDate(String(options.after), '--after');
+        if (options.before) validateDate(String(options.before), '--before');
         const results = await searchBookmarks({
           query,
           author: options.author ? String(options.author) : undefined,
@@ -692,6 +694,8 @@ export function buildCli() {
     .action(
       safe(async (options) => {
         if (!requireIndex()) return;
+        if (options.after) validateDate(String(options.after), '--after');
+        if (options.before) validateDate(String(options.before), '--before');
         const items = await listBookmarks({
           query: options.query ? String(options.query) : undefined,
           author: options.author ? String(options.author) : undefined,
