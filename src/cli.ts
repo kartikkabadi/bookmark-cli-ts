@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 import {Command} from 'commander';
-import {syncTwitterBookmarks} from './bookmarks.js';
 import {getBookmarkStatusView, formatBookmarkStatus} from './bookmarks-service.js';
 import {runTwitterOAuthFlow} from './xauth.js';
-import {syncBookmarksGraphQL, syncGaps} from './graphql-bookmarks.js';
-import type {SyncProgress, GapFillProgress} from './graphql-bookmarks.js';
 import {fetchBookmarkMediaBatch} from './bookmark-media.js';
-import {buildIndex, searchBookmarks, formatSearchResults, getStats, classifyAndRebuild, getCategoryCounts, sampleByCategory, getDomainCounts, listBookmarks, getBookmarkById, validateDate} from './bookmarks-db.js';
+import {searchBookmarks, formatSearchResults, getStats, classifyAndRebuild, getCategoryCounts, sampleByCategory, getDomainCounts, listBookmarks, getBookmarkById, validateDate, buildIndex} from './bookmarks-db.js';
 import {formatClassificationSummary} from './bookmark-classify.js';
 import {classifyWithLlm, classifyDomainsWithLlm} from './bookmark-classify-llm.js';
 import {resolveEngine, detectAvailableEngines} from './engine.js';
@@ -17,9 +14,10 @@ import {lintMd, fixLintIssues} from './md-lint.js';
 import {exportBookmarks} from './md-export.js';
 import {renderViz} from './bookmarks-viz.js';
 import {listBrowserIds} from './browsers.js';
-import {dataDir, ensureDataDir, isFirstRun, twitterBookmarksIndexPath, twitterBackfillStatePath, mdDir} from './paths.js';
+import {dataDir, ensureDataDir, isFirstRun, twitterBookmarksIndexPath, mdDir} from './paths.js';
 import {PromptCancelledError, promptText} from './prompt.js';
 import {skillWithFrontmatter, installSkill, uninstallSkill} from './skill.js';
+import {runSyncCommand, rebuildIndex} from './sync-command.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
@@ -359,46 +357,6 @@ function safe(fn: (...args: any[]) => Promise<void>): (...args: any[]) => Promis
 export function buildCli() {
   const program = new Command();
 
-  async function rebuildIndex(): Promise<number> {
-    process.stderr.write('  Building search index...\n');
-    const idx = await buildIndex();
-    process.stderr.write(`  \u2713 ${idx.recordCount} bookmarks indexed (${idx.newRecords} new)\n`);
-    return idx.newRecords;
-  }
-
-  async function classifyNew(): Promise<void> {
-    const engine = await resolveEngine();
-
-    const start = Date.now();
-    process.stderr.write('  Classifying new bookmarks (categories)...\n');
-    const catResult = await classifyWithLlm({
-      engine,
-      onBatch: (done: number, total: number) => {
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        const elapsed = Math.round((Date.now() - start) / 1000);
-        process.stderr.write(`  Categories: ${done}/${total} (${pct}%) \u2502 ${elapsed}s elapsed\n`);
-      }
-    });
-    if (catResult.classified > 0) {
-      process.stderr.write(`  \u2713 ${catResult.classified} categorized\n`);
-    }
-
-    const domStart = Date.now();
-    process.stderr.write('  Classifying new bookmarks (domains)...\n');
-    const domResult = await classifyDomainsWithLlm({
-      engine,
-      all: false,
-      onBatch: (done: number, total: number) => {
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        const elapsed = Math.round((Date.now() - domStart) / 1000);
-        process.stderr.write(`  Domains: ${done}/${total} (${pct}%) \u2502 ${elapsed}s elapsed\n`);
-      }
-    });
-    if (domResult.classified > 0) {
-      process.stderr.write(`  \u2713 ${domResult.classified} domains assigned\n`);
-    }
-  }
-
   program
     .name('ft')
     .description('Self-custody for your X/Twitter bookmarks. Sync, search, classify, and explore locally.')
@@ -430,225 +388,14 @@ export function buildCli() {
     .option('--chrome-profile-directory <name>', 'Chrome-family profile name')
     .option('--firefox-profile-dir <path>', 'Firefox profile directory')
     .action(async (options) => {
-      const firstRun = isFirstRun();
-      if (firstRun) showSyncWelcome();
-      ensureDataDir();
-
-      try {
-        const mutuallyExclusive = [options.rebuild, options.continue, options.gaps].filter(Boolean).length;
-        if (mutuallyExclusive > 1) {
-          console.error('  Error: --rebuild, --continue, and --gaps cannot be used together.');
-          process.exitCode = 1;
-          return;
-        }
-
-        // ── gaps mode: backfill missing data for existing bookmarks ──
-        if (options.gaps) {
-          const startTime = Date.now();
-          process.stderr.write('  Filling gaps (quoted tweets, truncated text)...\n');
-          let lastProgress: GapFillProgress = {done: 0, total: 0, quotedFetched: 0, textExpanded: 0, failed: 0};
-          const spinner = createSpinner(() => {
-            const p = lastProgress;
-            const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
-            const elapsed = Math.round((Date.now() - startTime) / 1000);
-            return `${p.done}/${p.total} (${pct}%) \u2502 ${p.quotedFetched} quoted \u2502 ${p.textExpanded} expanded \u2502 ${p.failed} failed \u2502 ${elapsed}s`;
-          });
-          const result = await runWithSpinner(spinner, () =>
-            syncGaps({
-              delayMs: Number(options.delayMs) || 300,
-              onProgress: (progress: GapFillProgress) => {
-                lastProgress = progress;
-                spinner.update();
-              }
-            })
-          );
-          if (result.total === 0 && result.bookmarkedAtRepaired === 0) {
-            console.log('  No gaps found \u2014 all bookmarks are fully enriched.');
-          } else {
-            if (result.quotedTweetsFilled > 0) console.log(`  \u2713 ${result.quotedTweetsFilled} quoted tweets filled`);
-            if (result.textExpanded > 0) console.log(`  \u2713 ${result.textExpanded} truncated texts expanded`);
-            if (result.bookmarkedAtRepaired > 0) {
-              console.log(`  \u2713 ${result.bookmarkedAtRepaired} invalid bookmark dates cleared`);
-              await rebuildIndex();
-            }
-            if (result.failed > 0) {
-              // Write failure log
-              const logPath = path.join(dataDir(), 'gaps-failures.json');
-              const byReason: Record<string, number> = {};
-              for (const f of result.failures) {
-                byReason[f.reason] = (byReason[f.reason] ?? 0) + 1;
-              }
-              fs.writeFileSync(logPath, JSON.stringify({failures: result.failures, summary: byReason}, null, 2));
-
-              console.log(`  ${result.failed} unavailable:`);
-              for (const [reason, count] of Object.entries(byReason)) {
-                console.log(`    \u2022 ${count} ${reason}`);
-              }
-              console.log(`  Details: ${logPath}`);
-            }
-            if (result.bookmarkedAtMissing > 0) {
-              console.log(`  ${result.bookmarkedAtMissing} bookmarks missing a reliable bookmark date`);
-            }
-          }
-          return;
-        }
-
-        // ── rebuild confirmation ──
-        if (options.rebuild) {
-          const dir = dataDir();
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const backupDir = `${dir}-backup-${timestamp}`;
-
-          console.log(`  \u26a0 Rebuild will re-crawl all bookmarks from X.`);
-          console.log(`  Your existing data will be merged (not deleted), but`);
-          console.log(`  this is a full re-sync and may take a while.\n`);
-          console.log(`  To back up first, run:`);
-          console.log(`    cp -r ${dir} ${backupDir}\n`);
-
-          // Allow --yes to skip confirmation
-          if (!options.yes) {
-            const answer = await promptText('  Continue? (y/N) ', {output: process.stdout});
-            if (answer.kind === 'interrupt') {
-              throw new PromptCancelledError('Cancelled. Rebuild aborted.', 130);
-            }
-            if (answer.kind !== 'answer' || answer.value.toLowerCase() !== 'y') {
-              console.log('  Aborted.');
-              return;
-            }
-          }
-        }
-
-        const useApi = Boolean(options.api);
-        const mode = Boolean(options.rebuild) ? 'full' : 'incremental';
-
-        if (useApi) {
-          const result = await syncTwitterBookmarks(mode, {
-            targetAdds: typeof options.targetAdds === 'number' && !Number.isNaN(options.targetAdds) ? options.targetAdds : undefined
-          });
-          console.log(`\n  \u2713 ${result.added} new bookmarks synced (${result.totalBookmarks} total)`);
-          console.log(`  \u2713 Data: ${dataDir()}\n`);
-          warnIfEmpty(result.totalBookmarks);
-          const newCount = await rebuildIndex();
-          if (options.classify && newCount > 0) {
-            await classifyNew();
-          }
-        } else {
-          const startTime = Date.now();
-          let lastSync: SyncProgress = {page: 0, totalFetched: 0, newAdded: 0, running: true, done: false};
-          const spinner = createSpinner(() => {
-            const elapsed = Math.round((Date.now() - startTime) / 1000);
-            if (lastSync.stopReason && lastSync.running) {
-              return `${lastSync.stopReason}  \u2502  ${lastSync.newAdded} new  \u2502  ${elapsed}s`;
-            }
-            return `Syncing bookmarks...  ${lastSync.newAdded} new  \u2502  page ${lastSync.page}  \u2502  ${elapsed}s`;
-          });
-          // Parse --cookies <ct0> [auth_token] — variadic, gives us an array
-          let csrfToken: string | undefined;
-          let cookieHeader: string | undefined;
-          if (options.cookies && Array.isArray(options.cookies) && options.cookies.length > 0) {
-            csrfToken = String(options.cookies[0]);
-            const authToken = options.cookies.length > 1 ? String(options.cookies[1]) : undefined;
-            const parts = [`ct0=${csrfToken}`];
-            if (authToken) parts.push(`auth_token=${authToken}`);
-            cookieHeader = parts.join('; ');
-          }
-
-          // Load saved cursor for --continue mode
-          let resumeCursor: string | undefined;
-          if (options.continue) {
-            try {
-              const statePath = twitterBackfillStatePath();
-              const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-              resumeCursor = state?.lastCursor;
-            } catch {
-              /* no state file yet */
-            }
-            if (resumeCursor) {
-              console.log('  Resuming from saved position...\n');
-            } else {
-              console.log('  No saved cursor — scanning past existing bookmarks to find new ones...\n');
-            }
-          }
-
-          // When continuing without a cursor, disable stale page limit so we can
-          // page through all existing bookmarks to reach the ones beyond the old cap.
-          // With a saved cursor we skip straight to where we left off, so the normal
-          // stale limit is fine.
-          const continueWithoutCursor = Boolean(options.continue) && !resumeCursor;
-
-          const result = await runWithSpinner(spinner, () =>
-            syncBookmarksGraphQL({
-              incremental: !Boolean(options.rebuild) && !Boolean(options.continue),
-              resumeCursor,
-              stalePageLimit: continueWithoutCursor ? Infinity : undefined,
-              maxPages: options.maxPages != null ? Number(options.maxPages) : undefined,
-              targetAdds: typeof options.targetAdds === 'number' && !Number.isNaN(options.targetAdds) ? options.targetAdds : undefined,
-              delayMs: Number(options.delayMs) || 600,
-              maxMinutes: Number(options.maxMinutes) || 30,
-              browser: options.browser ? String(options.browser) : undefined,
-              csrfToken,
-              cookieHeader,
-              chromeUserDataDir: options.chromeUserDataDir ? String(options.chromeUserDataDir) : undefined,
-              chromeProfileDirectory: options.chromeProfileDirectory ? String(options.chromeProfileDirectory) : undefined,
-              firefoxProfileDir: options.firefoxProfileDir ? String(options.firefoxProfileDir) : undefined,
-              onProgress: (status: SyncProgress) => {
-                lastSync = status;
-                spinner.update();
-              }
-            })
-          );
-
-          console.log(`\n  \u2713 ${result.added} new bookmarks synced (${result.totalBookmarks} total)`);
-          console.log(`  ${friendlyStopReason(result.stopReason)}`);
-          if (result.bookmarkedAtRepaired > 0) {
-            console.log(`  \u2713 ${result.bookmarkedAtRepaired} invalid bookmark dates cleared`);
-          }
-          if (result.bookmarkedAtMissing > 0) {
-            console.log(`  ${result.bookmarkedAtMissing} bookmarks missing a reliable bookmark date`);
-          }
-          console.log(`  \u2713 Data: ${dataDir()}\n`);
-
-          warnIfEmpty(result.totalBookmarks);
-
-          const newCount = await rebuildIndex();
-          if (options.classify && newCount > 0) {
-            await classifyNew();
-          }
-        }
-
-        if (firstRun) {
-          console.log(`\n  Next steps:`);
-          console.log(`        ft classify              Classify by category and domain (LLM)`);
-          console.log(`        ft classify --regex      Classify by category (simple)`);
-          console.log(`\n  Explore:`);
-          console.log(`        ft search "machine learning"`);
-          console.log(`        ft viz`);
-          console.log(`        ft categories`);
-          console.log(`\n  You can also just tell Claude to use the ft CLI to search and`);
-          console.log(`  explore your bookmarks. It already knows how.\n`);
-        }
-      } catch (err) {
-        const msg = (err as Error).message;
-        if (firstRun && (msg.includes('cookie') || msg.includes('Cookie') || msg.includes('Keychain') || msg.includes('Safe Storage'))) {
-          console.log(`
-  Couldn't connect to your browser session.
-
-  To sync your bookmarks:
-
-    1. Open your browser and log into x.com
-    2. Run: ft sync
-
-  Options:
-    ft sync --browser brave           Use a specific browser
-    ft sync --browser firefox          Use Firefox
-    ft sync --cookies <ct0> <auth>     Pass cookies directly
-    ft sync --chrome-profile-directory "Profile 1"
-`);
-        } else {
-          console.error(`\n  Error: ${msg}\n`);
-        }
-        process.exitCode = 1;
-      }
+      await runSyncCommand(options, {
+        firstRun: isFirstRun(),
+        isFirstRun,
+        showSyncWelcome,
+        ensureDataDir,
+        createSpinner,
+        runWithSpinner
+      })
     });
 
   // ── search ──────────────────────────────────────────────────────────────
