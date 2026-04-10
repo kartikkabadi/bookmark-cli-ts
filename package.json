@@ -1,7 +1,7 @@
 {
   "name": "fieldtheory",
   "version": "1.3.2",
-  "description": "Field Theory CLI. Self-custody for your X/Twitter bookmarks. Local sync, full-text search, classification, and terminal dashboards.",
+  "description": "Field Theory CLI — Helium Edition. Self-custody for your X/Twitter bookmarks. Local sync via Helium browser, full-text search, classification, and terminal dashboards.",
   "type": "module",
   "bin": {
     "ft": "bin/ft.mjs",
@@ -30,7 +30,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/afar1/fieldtheory-cli.git"
+    "url": "git+https://github.com/kartikkabadi/fieldtheory-cli-helium.git"
   },
   "keywords": [
     "bookmarks",
@@ -41,7 +41,9 @@
     "sqlite",
     "local-first",
     "self-custody",
-    "cli"
+    "cli",
+    "helium",
+    "helium-browser"
   ],
   "dependencies": {
     "commander": "^14.0.3",
