@@ -156,29 +156,51 @@ async function queryVizData(): Promise<VizData> {
        GROUP BY author_handle ORDER BY c DESC LIMIT 20`
     );
 
-    // Twitter date format: "Sat Mar 28 18:55:23 +0000 2026"
-    // Year is at end (-4), month name at 5-7, hour at 12-13
+    // Twitter legacy format: "Sat Mar 28 18:55:23 +0000 2026"
+    // Normalize both legacy and ISO timestamps into the same YYYY-MM bucket.
+    const legacyMonthNumberExpr = `CASE substr(bookmarked_at, 5, 3)
+      WHEN 'Jan' THEN '01' WHEN 'Feb' THEN '02' WHEN 'Mar' THEN '03'
+      WHEN 'Apr' THEN '04' WHEN 'May' THEN '05' WHEN 'Jun' THEN '06'
+      WHEN 'Jul' THEN '07' WHEN 'Aug' THEN '08' WHEN 'Sep' THEN '09'
+      WHEN 'Oct' THEN '10' WHEN 'Nov' THEN '11' WHEN 'Dec' THEN '12'
+      ELSE '00'
+    END`;
+    const monthBucketExpr = `CASE
+      WHEN bookmarked_at GLOB '____-__-__*' THEN substr(bookmarked_at, 1, 7)
+      ELSE substr(bookmarked_at, -4) || '-' || ${legacyMonthNumberExpr}
+    END`;
 
-    // Build a synthetic YYYY-MonName from the twitter date parts
     const monthlyRows = db.exec(
       `SELECT
-         substr(bookmarked_at, -4) || '-' || substr(bookmarked_at, 5, 3) as ym,
+         ${monthBucketExpr} as ym,
          COUNT(*) as c
        FROM bookmarks WHERE bookmarked_at IS NOT NULL
        GROUP BY ym ORDER BY ym`
     );
 
-    // Day of week — first 3 chars
+    // Day of week — first 3 chars for legacy, strftime('%w') for ISO
+    // SQLite %w: 0=Sunday, 1=Monday... We can map them if we want, but the chart just uses 'dow' as a string key
     const dowRows = db.exec(
-      `SELECT substr(bookmarked_at, 1, 3) as dow, COUNT(*) as c
+      `SELECT 
+         CASE
+           WHEN bookmarked_at GLOB '____-__-__*' THEN 
+             CASE strftime('%w', bookmarked_at)
+               WHEN '0' THEN 'Sun' WHEN '1' THEN 'Mon' WHEN '2' THEN 'Tue'
+               WHEN '3' THEN 'Wed' WHEN '4' THEN 'Thu' WHEN '5' THEN 'Fri' WHEN '6' THEN 'Sat' END
+           ELSE substr(bookmarked_at, 1, 3)
+         END as dow, COUNT(*) as c
        FROM bookmarks WHERE bookmarked_at IS NOT NULL
        GROUP BY dow ORDER BY c DESC`
     );
 
-    // Hour of day — chars 12-13
+    // Hour of day — chars 12-13 for legacy, strftime('%H') for ISO
     const hourRows = db.exec(
-      `SELECT CAST(substr(bookmarked_at, 12, 2) AS INTEGER) as h, COUNT(*) as c
-       FROM bookmarks WHERE bookmarked_at IS NOT NULL AND length(bookmarked_at) > 13
+      `SELECT 
+         CASE
+           WHEN bookmarked_at GLOB '____-__-__*' THEN CAST(strftime('%H', bookmarked_at) AS INTEGER)
+           ELSE CAST(substr(bookmarked_at, 12, 2) AS INTEGER)
+         END as h, COUNT(*) as c
+       FROM bookmarks WHERE bookmarked_at IS NOT NULL
        GROUP BY h ORDER BY h`
     );
 
@@ -191,7 +213,7 @@ async function queryVizData(): Promise<VizData> {
       try {
         const links = JSON.parse(row[0] as string) as string[];
         for (const link of links) {
-          const url = typeof link === 'string' ? link : (link as any).expanded_url ?? (link as any).url ?? '';
+          const url = typeof link === 'string' ? link : ((link as Record<string, string>).expanded_url ?? (link as Record<string, string>).url ?? '');
           try {
             const domain = new URL(url).hostname.replace(/^www\./, '');
             if (domain && domain !== 'x.com' && domain !== 't.co') {
@@ -266,7 +288,7 @@ async function queryVizData(): Promise<VizData> {
 
     // Rising voices: authors with 3+ bookmarks, all from the most recent month
     const latestMonth = db.exec(
-      `SELECT substr(bookmarked_at, -4) || '-' || substr(bookmarked_at, 5, 3)
+      `SELECT ${monthBucketExpr}
        FROM bookmarks WHERE bookmarked_at IS NOT NULL
        ORDER BY bookmarked_at DESC LIMIT 1`
     )[0]?.values[0]?.[0] as string | undefined;
@@ -278,7 +300,7 @@ async function queryVizData(): Promise<VizData> {
          WHERE author_handle IS NOT NULL
          GROUP BY author_handle
          HAVING c >= 3
-         AND MIN(substr(bookmarked_at, -4) || '-' || substr(bookmarked_at, 5, 3)) = ?
+         AND MIN(${monthBucketExpr}) = ?
          ORDER BY c DESC LIMIT 8`,
         [latestMonth]
       );
@@ -288,18 +310,16 @@ async function queryVizData(): Promise<VizData> {
       }));
     }
 
-    // Convert "2026-Mar" to "2026-03" for proper sorting
-    const monthNumMap: Record<string, string> = {
-      Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-      Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
+    const monthNameMap: Record<string, string> = {
+      '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun',
+      '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec',
     };
     const rawMonthly = (monthlyRows[0]?.values ?? []).map((r) => {
-      const raw = r[0] as string; // "2026-Mar"
-      const [year, monName] = raw.split('-');
-      const num = monthNumMap[monName] ?? '00';
-      return { month: `${year}-${num}`, label: `${monName} ${year}`, count: r[1] as number };
+      const month = r[0] as string; // "2026-03"
+      const [year, monthNum] = month.split('-');
+      const label = `${monthNameMap[monthNum] ?? monthNum} ${year}`;
+      return { month, label, count: r[1] as number };
     });
-    rawMonthly.sort((a, b) => a.month.localeCompare(b.month));
 
     // Categories
     let categories: { name: string; count: number }[] = [];

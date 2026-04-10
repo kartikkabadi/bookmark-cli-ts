@@ -1,5 +1,27 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 *.js.map
+
+# Environment files (contain secrets)
 .env
 .env.local
+
+# Data directory (local bookmark data)
+.ft-bookmarks/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Debug
+npm-debug.log*

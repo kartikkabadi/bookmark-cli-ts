@@ -1,9 +1,12 @@
 import { ensureDir, readJsonLines, writeJsonLines, readJson, writeJson, pathExists } from './fs.js';
-import { ensureDataDir, twitterBookmarksCachePath, twitterBackfillStatePath } from './paths.js';
+import { ensureDataDir, twitterBookmarksCachePath, twitterBookmarksMetaPath, twitterBackfillStatePath } from './paths.js';
 import { loadChromeSessionConfig } from './config.js';
 import { extractChromeXCookies } from './chrome-cookies.js';
-import type { BookmarkBackfillState, BookmarkRecord } from './types.js';
-import { exportBookmarksForSyncSeed } from './bookmarks-db.js';
+import { extractFirefoxXCookies } from './firefox-cookies.js';
+import type { BookmarkBackfillState, BookmarkCacheMeta, BookmarkRecord, QuotedTweetSnapshot } from './types.js';
+import { exportBookmarksForSyncSeed, updateQuotedTweets, updateBookmarkText } from './bookmarks-db.js';
+
+const CHROME_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
 const X_PUBLIC_BEARER =
   'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
@@ -38,7 +41,7 @@ const GRAPHQL_FEATURES = {
 export interface SyncOptions {
   /** Default true. Stop once we reach the newest already-stored bookmark. */
   incremental?: boolean;
-  /** Max pages to fetch (20 bookmarks per page). Default: 500 */
+  /** Max pages to fetch (20 bookmarks per page). Default: unlimited */
   maxPages?: number;
   /** Stop once this many *new* bookmarks have been added. Default: unlimited */
   targetAdds?: number;
@@ -48,16 +51,24 @@ export interface SyncOptions {
   maxMinutes?: number;
   /** Consecutive pages with 0 new bookmarks before stopping. Default: 3 */
   stalePageLimit?: number;
-  /** Chrome user-data-dir override. */
+  /** Bookmarks per page (1–100). Default: 20 */
+  pageSize?: number;
+  /** Browser id (e.g. 'chrome', 'firefox', 'brave'). */
+  browser?: string;
+  /** Chrome-family user-data-dir override. */
   chromeUserDataDir?: string;
-  /** Chrome profile directory name (e.g. "Default"). */
+  /** Chrome-family profile directory name (e.g. "Default"). */
   chromeProfileDirectory?: string;
-  /** Direct csrf token override; skips Chrome cookie extraction. */
+  /** Firefox profile directory override. */
+  firefoxProfileDir?: string;
+  /** Direct csrf token override; skips all cookie extraction. */
   csrfToken?: string;
-  /** Direct cookie header override; skips Chrome cookie extraction. */
+  /** Direct cookie header override; skips all cookie extraction. */
   cookieHeader?: string;
   /** Progress callback. */
   onProgress?: (status: SyncProgress) => void;
+  /** Resume from a saved cursor instead of starting from the newest bookmark. */
+  resumeCursor?: string;
   /** Flush to disk every N pages. Default: 25 */
   checkpointEvery?: number;
 }
@@ -73,7 +84,9 @@ export interface SyncProgress {
 
 export interface SyncResult {
   added: number;
+  bookmarkedAtRepaired: number;
   totalBookmarks: number;
+  bookmarkedAtMissing: number;
   pages: number;
   stopReason: string;
   cachePath: string;
@@ -89,12 +102,48 @@ function parseSnowflake(value?: string | null): bigint | null {
   }
 }
 
+function parseDateMs(value?: string | null): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const MAX_FUTURE_BOOKMARK_SKEW_MS = 5 * 60_000;
+
+export function sanitizeBookmarkedAt(record: BookmarkRecord): BookmarkRecord {
+  const bookmarkedAtMs = parseDateMs(record.bookmarkedAt);
+  if (bookmarkedAtMs == null) {
+    return record.bookmarkedAt == null ? record : { ...record, bookmarkedAt: null };
+  }
+
+  const postedAtMs = parseDateMs(record.postedAt);
+  if (postedAtMs != null && bookmarkedAtMs < postedAtMs) {
+    return { ...record, bookmarkedAt: null };
+  }
+
+  const syncedAtMs = parseDateMs(record.syncedAt);
+  if (syncedAtMs != null && bookmarkedAtMs > syncedAtMs + MAX_FUTURE_BOOKMARK_SKEW_MS) {
+    return { ...record, bookmarkedAt: null };
+  }
+
+  return record;
+}
+
+function sanitizeRecords(records: BookmarkRecord[]): { records: BookmarkRecord[]; repaired: number } {
+  let repaired = 0;
+  const sanitized = records.map((record) => {
+    const next = sanitizeBookmarkedAt(record);
+    if (next.bookmarkedAt !== record.bookmarkedAt) repaired += 1;
+    return next;
+  });
+  return { records: sanitized, repaired };
+}
+
 function parseBookmarkTimestamp(record: BookmarkRecord): number | null {
   const candidates = [record.bookmarkedAt, record.postedAt, record.syncedAt];
   for (const candidate of candidates) {
-    if (!candidate) continue;
-    const parsed = Date.parse(candidate);
-    if (Number.isFinite(parsed)) return parsed;
+    const parsed = parseDateMs(candidate);
+    if (parsed != null) return parsed;
   }
   return null;
 }
@@ -117,20 +166,20 @@ function compareBookmarkChronology(a: BookmarkRecord, b: BookmarkRecord): number
   return aStamp.localeCompare(bStamp);
 }
 
-async function loadExistingBookmarks(): Promise<BookmarkRecord[]> {
+async function loadExistingBookmarks(): Promise<{ records: BookmarkRecord[]; repaired: number }> {
   const cachePath = twitterBookmarksCachePath();
-  const existing = await readJsonLines<BookmarkRecord>(cachePath);
-  if (existing.length > 0) return existing;
+  const existing = sanitizeRecords(await readJsonLines<BookmarkRecord>(cachePath));
+  if (existing.records.length > 0) return existing;
   // On first run, no JSONL and no DB — return empty
   try {
-    return await exportBookmarksForSyncSeed();
+    return sanitizeRecords(await exportBookmarksForSyncSeed());
   } catch {
-    return [];
+    return { records: [], repaired: 0 };
   }
 }
 
-function buildUrl(cursor?: string): string {
-  const variables: Record<string, unknown> = { count: 20 };
+function buildUrl(cursor?: string, count = 20): string {
+  const variables: Record<string, unknown> = { count };
   if (cursor) variables.cursor = cursor;
   const params = new URLSearchParams({
     variables: JSON.stringify(variables),
@@ -146,7 +195,7 @@ function buildHeaders(csrfToken: string, cookieHeader?: string): Record<string, 
     'x-twitter-auth-type': 'OAuth2Session',
     'x-twitter-active-user': 'yes',
     'content-type': 'application/json',
-    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+    'user-agent': CHROME_UA,
     cookie: cookieHeader ?? `ct0=${csrfToken}`,
   };
 }
@@ -213,11 +262,47 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
     .map((u: any) => u.expanded_url)
     .filter((u: string | undefined) => u && !u.includes('t.co'));
 
+  // Extract quoted tweet if present
+  const quotedResult = tweet?.quoted_status_result?.result;
+  let quotedTweet: BookmarkRecord['quotedTweet'] | undefined;
+  if (quotedResult) {
+    const qtTweet = quotedResult.tweet ?? quotedResult;
+    const qtLegacy = qtTweet?.legacy;
+    if (qtLegacy) {
+      const qtId = qtLegacy.id_str ?? qtTweet?.rest_id;
+      const qtUser = qtTweet?.core?.user_results?.result;
+      const qtHandle = qtUser?.core?.screen_name ?? qtUser?.legacy?.screen_name;
+      const qtMediaEntities = qtLegacy?.extended_entities?.media ?? qtLegacy?.entities?.media ?? [];
+      quotedTweet = {
+        id: qtId,
+        text: qtLegacy.full_text ?? qtLegacy.text ?? '',
+        authorHandle: qtHandle,
+        authorName: qtUser?.core?.name ?? qtUser?.legacy?.name,
+        authorProfileImageUrl:
+          qtUser?.avatar?.image_url ?? qtUser?.legacy?.profile_image_url_https,
+        postedAt: qtLegacy.created_at ?? null,
+        media: qtMediaEntities.map((m: any) => m.media_url_https ?? m.media_url).filter(Boolean),
+        mediaObjects: qtMediaEntities.map((m: any) => ({
+          type: m.type,
+          url: m.media_url_https ?? m.media_url,
+          expandedUrl: m.expanded_url,
+          width: m.original_info?.width,
+          height: m.original_info?.height,
+        })),
+        url: `https://x.com/${qtHandle ?? '_'}/status/${qtId}`,
+      };
+    }
+  }
+
+  // X Articles / long-form note tweets store full text separately
+  const noteTweetText = tweet?.note_tweet?.note_tweet_results?.result?.text;
+  const text = noteTweetText ?? legacy.full_text ?? legacy.text ?? '';
+
   return {
     id: tweetId,
     tweetId,
     url: `https://x.com/${authorHandle ?? '_'}/status/${tweetId}`,
-    text: legacy.full_text ?? legacy.text ?? '',
+    text,
     authorHandle,
     authorName,
     authorProfileImageUrl,
@@ -229,6 +314,7 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
     inReplyToStatusId: legacy.in_reply_to_status_id_str,
     inReplyToUserId: legacy.in_reply_to_user_id_str,
     quotedStatusId: legacy.quoted_status_id_str,
+    quotedTweet,
     language: legacy.lang,
     sourceApp: legacy.source,
     possiblySensitive: legacy.possibly_sensitive,
@@ -246,6 +332,19 @@ export function convertTweetToRecord(tweetResult: any, now: string): BookmarkRec
     tags: [],
     ingestedVia: 'graphql',
   };
+}
+
+const TWITTER_SNOWFLAKE_EPOCH = 1288834974657n;
+
+function snowflakeToIso(snowflake: string): string | null {
+  try {
+    const id = BigInt(snowflake);
+    const ms = Number(id >> 22n) + Number(TWITTER_SNOWFLAKE_EPOCH);
+    const date = new Date(ms);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export function parseBookmarksResponse(json: any, now?: string): PageResult {
@@ -271,17 +370,23 @@ export function parseBookmarksResponse(json: any, now?: string): PageResult {
     if (!tweetResult) continue;
 
     const record = convertTweetToRecord(tweetResult, ts);
-    if (record) records.push(record);
+    if (record) {
+      // Extract bookmarkedAt from the entry's sortIndex (snowflake timestamp)
+      if (entry.sortIndex) {
+        record.bookmarkedAt = snowflakeToIso(entry.sortIndex) ?? record.bookmarkedAt;
+      }
+      records.push(sanitizeBookmarkedAt(record));
+    }
   }
 
   return { records, nextCursor };
 }
 
-async function fetchPageWithRetry(csrfToken: string, cursor?: string, cookieHeader?: string): Promise<PageResult> {
+async function fetchPageWithRetry(csrfToken: string, cursor?: string, cookieHeader?: string, pageSize?: number): Promise<PageResult> {
   let lastError: Error | undefined;
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const response = await fetch(buildUrl(cursor), { headers: buildHeaders(csrfToken, cookieHeader) });
+    const response = await fetch(buildUrl(cursor, pageSize), { headers: buildHeaders(csrfToken, cookieHeader) });
 
     if (response.status === 429) {
       const waitSec = Math.min(15 * Math.pow(2, attempt), 120);
@@ -302,7 +407,7 @@ async function fetchPageWithRetry(csrfToken: string, cursor?: string, cookieHead
         `GraphQL Bookmarks API returned ${response.status}.\n` +
           `Response: ${text.slice(0, 300)}\n\n` +
           (response.status === 401 || response.status === 403
-            ? 'Fix: Your X session may have expired. Open Chrome, go to https://x.com, and make sure you are logged in. Then retry.'
+            ? 'Fix: Your X session may have expired. Open your browser, go to https://x.com, and make sure you are logged in. Then retry.'
             : 'This may be a temporary issue. Try again in a few minutes.')
       );
     }
@@ -350,16 +455,17 @@ export function mergeRecords(
 
 function updateState(
   prev: BookmarkBackfillState,
-  input: { added: number; seenIds: string[]; stopReason: string }
+  input: { added: number; seenIds: string[]; stopReason: string; lastRunAt?: string; lastCursor?: string }
 ): BookmarkBackfillState {
   return {
     provider: 'twitter',
-    lastRunAt: new Date().toISOString(),
+    lastRunAt: input.lastRunAt ?? new Date().toISOString(),
     totalRuns: prev.totalRuns + 1,
     totalAdded: prev.totalAdded + input.added,
     lastAdded: input.added,
     lastSeenIds: input.seenIds.slice(-20),
     stopReason: input.stopReason,
+    lastCursor: input.lastCursor,
   };
 }
 
@@ -367,7 +473,9 @@ export function formatSyncResult(result: SyncResult): string {
   return [
     'Sync complete.',
     `- bookmarks added: ${result.added}`,
+    `- bookmark dates repaired: ${result.bookmarkedAtRepaired}`,
     `- total bookmarks: ${result.totalBookmarks}`,
+    `- missing reliable bookmark dates: ${result.bookmarkedAtMissing}`,
     `- pages fetched: ${result.pages}`,
     `- stop reason: ${result.stopReason}`,
     `- cache: ${result.cachePath}`,
@@ -379,11 +487,12 @@ export async function syncBookmarksGraphQL(
   options: SyncOptions = {}
 ): Promise<SyncResult> {
   const incremental = options.incremental ?? true;
-  const maxPages = options.maxPages ?? 500;
+  const maxPages = options.maxPages ?? Infinity;
   const delayMs = options.delayMs ?? 600;
   const maxMinutes = options.maxMinutes ?? 30;
   const stalePageLimit = options.stalePageLimit ?? 3;
   const checkpointEvery = options.checkpointEvery ?? 25;
+  const pageSize = Math.max(1, Math.min(options.pageSize ?? 20, 100));
 
   let csrfToken: string;
   let cookieHeader: string | undefined;
@@ -392,20 +501,33 @@ export async function syncBookmarksGraphQL(
     csrfToken = options.csrfToken;
     cookieHeader = options.cookieHeader;
   } else {
-    const chromeConfig = loadChromeSessionConfig();
-    const chromeDir = options.chromeUserDataDir ?? chromeConfig.chromeUserDataDir;
-    const chromeProfile = options.chromeProfileDirectory ?? chromeConfig.chromeProfileDirectory;
-    const cookies = extractChromeXCookies(chromeDir, chromeProfile);
-    csrfToken = cookies.csrfToken;
-    cookieHeader = cookies.cookieHeader;
+    const config = loadChromeSessionConfig({ browserId: options.browser });
+
+    if (config.browser.cookieBackend === 'firefox') {
+      const cookies = extractFirefoxXCookies(options.firefoxProfileDir);
+      csrfToken = cookies.csrfToken;
+      cookieHeader = cookies.cookieHeader;
+    } else {
+      const chromeDir = options.chromeUserDataDir ?? config.chromeUserDataDir;
+      const chromeProfile = options.chromeProfileDirectory ?? config.chromeProfileDirectory;
+      const cookies = extractChromeXCookies(chromeDir, chromeProfile, config.browser);
+      csrfToken = cookies.csrfToken;
+      cookieHeader = cookies.cookieHeader;
+    }
   }
 
   ensureDataDir();
   const cachePath = twitterBookmarksCachePath();
+  const metaPath = twitterBookmarksMetaPath();
   const statePath = twitterBackfillStatePath();
-  let existing = await loadExistingBookmarks();
+  const loaded = await loadExistingBookmarks();
+  let existing = loaded.records;
+  const bookmarkedAtRepaired = loaded.repaired;
   const newestKnownId = incremental
     ? existing.slice().sort((a, b) => compareBookmarkChronology(b, a))[0]?.id
+    : undefined;
+  const previousMeta = (await pathExists(metaPath))
+    ? await readJson<BookmarkCacheMeta>(metaPath)
     : undefined;
   const prevState: BookmarkBackfillState = (await pathExists(statePath))
     ? await readJson<BookmarkBackfillState>(statePath)
@@ -415,7 +537,7 @@ export async function syncBookmarksGraphQL(
   let page = 0;
   let totalAdded = 0;
   let stalePages = 0;
-  let cursor: string | undefined;
+  let cursor: string | undefined = options.resumeCursor;
   const allSeenIds: string[] = [];
   let stopReason = 'unknown';
 
@@ -425,7 +547,7 @@ export async function syncBookmarksGraphQL(
       break;
     }
 
-    const result = await fetchPageWithRetry(csrfToken, cursor, cookieHeader);
+    const result = await fetchPageWithRetry(csrfToken, cursor, cookieHeader, pageSize);
     page += 1;
 
     if (result.records.length === 0 && !result.nextCursor) {
@@ -449,33 +571,134 @@ export async function syncBookmarksGraphQL(
       done: false,
     });
 
+    // Update cursor before stop checks so auto-continue has the right position
+    cursor = result.nextCursor;
+
     if (options.targetAdds && totalAdded >= options.targetAdds) {
       stopReason = 'target additions reached';
       break;
     }
-    if (incremental && reachedLatestStored) {
+    if (reachedLatestStored) {
       stopReason = 'caught up to newest stored bookmark';
       break;
     }
-    if (incremental && stalePages >= stalePageLimit) {
+    if (stalePages >= stalePageLimit) {
       stopReason = 'no new bookmarks (stale)';
       break;
     }
-    if (!result.nextCursor) {
+    if (!cursor) {
       stopReason = 'end of bookmarks';
       break;
     }
 
     if (page % checkpointEvery === 0) await writeJsonLines(cachePath, existing);
 
-    cursor = result.nextCursor;
     if (page < maxPages) await new Promise((r) => setTimeout(r, delayMs));
   }
 
   if (stopReason === 'unknown') stopReason = page >= maxPages ? 'max pages reached' : 'unknown';
 
+  // ── Auto-continue: detect users stuck at the old 10k cap ──────────
+  // If we finished an incremental sync, the user has ≥9,500 bookmarks,
+  // and there's a cursor to keep going, automatically page through to
+  // find bookmarks the old 20-per-page × 500-page cap missed.
+  const OLD_CAP_THRESHOLD = 9_500;
+  const terminalStops = new Set(['end of bookmarks']);
+  const shouldAutoContinue =
+    incremental &&
+    !options.resumeCursor &&
+    existing.length >= OLD_CAP_THRESHOLD &&
+    !terminalStops.has(stopReason) &&
+    cursor != null;
+
+  if (shouldAutoContinue) {
+    // Use the first page's actual item count to estimate how many pages
+    // we need to scan through before reaching bookmarks beyond the old cap.
+    const firstPageSize = allSeenIds.length > 0 ? Math.min(allSeenIds.length, pageSize) : pageSize;
+    const estimatedScanPages = Math.ceil(existing.length / firstPageSize);
+    const scanStartPage = page;
+
+    let continueAdded = 0;
+
+    options.onProgress?.({
+      page,
+      totalFetched: allSeenIds.length,
+      newAdded: totalAdded,
+      running: true,
+      done: false,
+      stopReason: `scanning past ${existing.length.toLocaleString()} existing bookmarks (~${estimatedScanPages} pages)...`,
+    });
+
+    // Continue paginating with no stale-page or caught-up limits
+    while (page < maxPages) {
+      if (Date.now() - started > maxMinutes * 60_000) {
+        stopReason = 'max runtime reached';
+        break;
+      }
+
+      const result = await fetchPageWithRetry(csrfToken, cursor, cookieHeader, pageSize);
+      page += 1;
+
+      if (result.records.length === 0 && !result.nextCursor) {
+        stopReason = 'end of bookmarks';
+        break;
+      }
+
+      const { merged, added } = mergeRecords(existing, result.records);
+      existing = merged;
+      totalAdded += added;
+      continueAdded += added;
+      result.records.forEach((r) => allSeenIds.push(r.id));
+      cursor = result.nextCursor;
+
+      const scanProgress = page - scanStartPage;
+      options.onProgress?.({
+        page,
+        totalFetched: allSeenIds.length,
+        newAdded: totalAdded,
+        running: true,
+        done: false,
+        stopReason: continueAdded > 0
+          ? undefined // found new bookmarks — normal progress display
+          : `scanning past existing bookmarks (${scanProgress}/~${estimatedScanPages})...`,
+      });
+
+      if (!cursor) {
+        stopReason = 'end of bookmarks';
+        break;
+      }
+
+      if (page % checkpointEvery === 0) await writeJsonLines(cachePath, existing);
+
+      if (page < maxPages) await new Promise((r) => setTimeout(r, delayMs));
+    }
+
+    if (stopReason !== 'end of bookmarks' && page >= maxPages) {
+      stopReason = 'max pages reached';
+    }
+  }
+
+  const syncedAt = new Date().toISOString();
+  const bookmarkedAtMissing = existing.filter((record) => !record.bookmarkedAt).length;
   await writeJsonLines(cachePath, existing);
-  await writeJson(statePath, updateState(prevState, { added: totalAdded, seenIds: allSeenIds.slice(-20), stopReason }));
+  await writeJson(metaPath, {
+    provider: 'twitter',
+    schemaVersion: 1,
+    lastFullSyncAt: incremental ? previousMeta?.lastFullSyncAt : syncedAt,
+    lastIncrementalSyncAt: incremental ? syncedAt : previousMeta?.lastIncrementalSyncAt,
+    totalBookmarks: existing.length,
+  } satisfies BookmarkCacheMeta);
+  // Save cursor for resumption if sync stopped before reaching the end
+  const terminalReasons = new Set(['end of bookmarks', 'caught up to newest stored bookmark']);
+  const savedCursor = terminalReasons.has(stopReason) ? undefined : cursor;
+
+  await writeJson(statePath, updateState(prevState, {
+    added: totalAdded,
+    seenIds: allSeenIds.slice(-20),
+    stopReason,
+    lastRunAt: syncedAt,
+    lastCursor: savedCursor,
+  }));
 
   options.onProgress?.({
     page,
@@ -486,5 +709,230 @@ export async function syncBookmarksGraphQL(
     stopReason,
   });
 
-  return { added: totalAdded, totalBookmarks: existing.length, pages: page, stopReason, cachePath, statePath };
+  return {
+    added: totalAdded,
+    bookmarkedAtRepaired,
+    totalBookmarks: existing.length,
+    bookmarkedAtMissing,
+    pages: page,
+    stopReason,
+    cachePath,
+    statePath,
+  };
+}
+
+// ── Gap-fill: backfill missing data for existing bookmarks ────────────
+
+const SYNDICATION_URL = 'https://cdn.syndication.twimg.com/tweet-result';
+
+interface SyndicationResult {
+  snapshot: QuotedTweetSnapshot | null;
+  status: 'ok' | 'empty' | 'not_found' | 'forbidden' | 'rate_limited' | 'server_error' | 'error';
+  httpStatus?: number;
+}
+
+async function fetchTweetViaSyndication(tweetId: string): Promise<SyndicationResult> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const response = await fetch(`${SYNDICATION_URL}?id=${tweetId}&token=x`, {
+      headers: {
+        'user-agent': CHROME_UA,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json() as any;
+      if (!data?.text) return { snapshot: null, status: 'empty' };
+      const handle = data.user?.screen_name;
+      const mediaEntities: any[] = data.mediaDetails ?? [];
+      return {
+        status: 'ok',
+        snapshot: {
+          id: String(data.id_str ?? tweetId),
+          text: data.text,
+          authorHandle: handle,
+          authorName: data.user?.name,
+          authorProfileImageUrl: data.user?.profile_image_url_https,
+          postedAt: data.created_at ?? null,
+          media: mediaEntities.map((m: any) => m.media_url_https ?? m.media_url).filter(Boolean),
+          mediaObjects: mediaEntities.map((m: any) => ({
+            type: m.type,
+            url: m.media_url_https ?? m.media_url,
+            width: m.original_info?.width,
+            height: m.original_info?.height,
+          })),
+          url: `https://x.com/${handle ?? '_'}/status/${data.id_str ?? tweetId}`,
+        },
+      };
+    }
+
+    if (response.status === 429) {
+      await new Promise((r) => setTimeout(r, Math.min(15 * Math.pow(2, attempt), 120) * 1000));
+      continue;
+    }
+    if (response.status >= 500) {
+      await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+      continue;
+    }
+    // 404/403 — tweet unavailable, don't retry
+    const status = response.status === 404 ? 'not_found' as const : 'forbidden' as const;
+    return { snapshot: null, status, httpStatus: response.status };
+  }
+  return { snapshot: null, status: 'rate_limited' };
+}
+
+// Text >= 275 chars may be truncated by Twitter's legacy.full_text limit
+const TRUNCATION_THRESHOLD = 275;
+
+export interface GapFillProgress {
+  done: number;
+  total: number;
+  quotedFetched: number;
+  textExpanded: number;
+  failed: number;
+}
+
+export interface GapFillFailure {
+  tweetId: string;
+  reason: string;
+  url: string;
+}
+
+export interface GapFillResult {
+  quotedTweetsFilled: number;
+  textExpanded: number;
+  bookmarkedAtRepaired: number;
+  bookmarkedAtMissing: number;
+  failed: number;
+  failures: GapFillFailure[];
+  total: number;
+}
+
+export async function syncGaps(options?: {
+  onProgress?: (progress: GapFillProgress) => void;
+  delayMs?: number;
+}): Promise<GapFillResult> {
+  const delayMs = options?.delayMs ?? 300;
+  const cachePath = twitterBookmarksCachePath();
+  const loaded = sanitizeRecords(await readJsonLines<BookmarkRecord>(cachePath));
+  const records = loaded.records;
+
+  // Gap 1: missing quoted tweets
+  const needsQuotedTweet = records.filter((r) => r.quotedStatusId && !r.quotedTweet);
+  const quotedIds = new Set(needsQuotedTweet.map((r) => r.quotedStatusId!));
+
+  // Gap 2: potentially truncated text (articles/long notes cut off by legacy.full_text)
+  const maybeTruncated = records.filter((r) => (r.text?.length ?? 0) >= TRUNCATION_THRESHOLD);
+  const truncatedIds = new Set(maybeTruncated.map((r) => r.tweetId));
+
+  // Build lookup indexes for applying results
+  const recordsByQuotedId = new Map<string, BookmarkRecord[]>();
+  for (const r of needsQuotedTweet) {
+    const list = recordsByQuotedId.get(r.quotedStatusId!) ?? [];
+    list.push(r);
+    recordsByQuotedId.set(r.quotedStatusId!, list);
+  }
+  const recordsByTweetId = new Map<string, BookmarkRecord[]>();
+  for (const r of maybeTruncated) {
+    const list = recordsByTweetId.get(r.tweetId) ?? [];
+    list.push(r);
+    recordsByTweetId.set(r.tweetId, list);
+  }
+
+  // Combine all IDs to fetch — deduplicated
+  const allFetchIds = [...new Set([...quotedIds, ...truncatedIds])];
+  const total = allFetchIds.length;
+
+  let quotedFetched = 0;
+  let textExpanded = 0;
+  let failed = 0;
+  const failures: GapFillFailure[] = [];
+  const dbQuotedUpdates: Array<{ id: string; quotedTweet: QuotedTweetSnapshot }> = [];
+  const dbTextUpdates: Array<{ id: string; text: string }> = [];
+
+  // Fetch and apply incrementally
+  for (let i = 0; i < allFetchIds.length; i++) {
+    const tweetId = allFetchIds[i];
+    let snapshot: QuotedTweetSnapshot | null = null;
+    try {
+      const result = await fetchTweetViaSyndication(tweetId);
+      snapshot = result.snapshot;
+      if (!snapshot) {
+        failed++;
+        const reasons: Record<string, string> = {
+          empty: 'tweet exists but has no text content',
+          not_found: 'deleted or does not exist',
+          forbidden: 'private or suspended account',
+          rate_limited: 'rate limited after 4 retries',
+          server_error: 'X server error after 4 retries',
+        };
+        failures.push({
+          tweetId,
+          reason: reasons[result.status] ?? result.status,
+          url: `https://x.com/_/status/${tweetId}`,
+        });
+      }
+    } catch (err) {
+      failed++;
+      failures.push({
+        tweetId,
+        reason: (err as Error).message ?? 'unknown error',
+        url: `https://x.com/_/status/${tweetId}`,
+      });
+    }
+
+    // Apply immediately so progress is accurate
+    if (snapshot) {
+      // Quoted tweet gap
+      for (const record of recordsByQuotedId.get(tweetId) ?? []) {
+        if (!record.quotedTweet) {
+          record.quotedTweet = snapshot;
+          dbQuotedUpdates.push({ id: record.id, quotedTweet: snapshot });
+          quotedFetched++;
+        }
+      }
+      // Truncated text gap
+      for (const record of recordsByTweetId.get(tweetId) ?? []) {
+        if (snapshot.text.length > (record.text?.length ?? 0)) {
+          record.text = snapshot.text;
+          dbTextUpdates.push({ id: record.id, text: snapshot.text });
+          textExpanded++;
+        }
+      }
+    }
+
+    options?.onProgress?.({
+      done: i + 1,
+      total,
+      quotedFetched,
+      textExpanded,
+      failed,
+    });
+
+    // Checkpoint every 100 fetches
+    if ((i + 1) % 100 === 0) {
+      await writeJsonLines(cachePath, records);
+    }
+
+    if (i < allFetchIds.length - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  // Find bookmarks missing bookmarkedAt (filled on next sync, not via syndication)
+  const bookmarkedAtMissing = records.filter((r) => !r.bookmarkedAt).length;
+
+  // Final persist
+  await writeJsonLines(cachePath, records);
+  if (dbQuotedUpdates.length > 0) await updateQuotedTweets(dbQuotedUpdates);
+  if (dbTextUpdates.length > 0) await updateBookmarkText(dbTextUpdates);
+
+  return {
+    quotedTweetsFilled: quotedFetched,
+    textExpanded,
+    bookmarkedAtRepaired: loaded.repaired,
+    bookmarkedAtMissing,
+    failed,
+    failures,
+    total,
+  };
 }

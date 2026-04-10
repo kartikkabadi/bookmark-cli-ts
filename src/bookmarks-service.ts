@@ -1,4 +1,4 @@
-import { getTwitterBookmarksStatus } from './bookmarks.js';
+import { getTwitterBookmarksStatus, latestBookmarkSyncAt } from './bookmarks.js';
 import { buildIndex } from './bookmarks-db.js';
 import { loadTwitterOAuthToken } from './xauth.js';
 import { syncBookmarksGraphQL, type SyncProgress } from './graphql-bookmarks.js';
@@ -52,7 +52,7 @@ export async function getBookmarkStatusView(): Promise<BookmarkStatusView> {
   return {
     connected: Boolean(token?.access_token),
     bookmarkCount: status.totalBookmarks,
-    lastUpdated: status.lastIncrementalSyncAt ?? status.lastFullSyncAt ?? null,
+    lastUpdated: latestBookmarkSyncAt(status),
     mode: token?.access_token ? 'Incremental by default (GraphQL + API available)' : 'Incremental by default (GraphQL)',
     cachePath: status.cachePath,
   };

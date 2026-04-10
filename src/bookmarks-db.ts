@@ -2,11 +2,11 @@ import type { Database } from 'sql.js';
 import { openDb, saveDb } from './db.js';
 import { readJsonLines } from './fs.js';
 import { twitterBookmarksCachePath, twitterBookmarksIndexPath } from './paths.js';
-import type { BookmarkRecord } from './types.js';
+import type { BookmarkRecord, QuotedTweetSnapshot } from './types.js';
 import { classifyCorpus, formatClassificationSummary } from './bookmark-classify.js';
 import type { ClassificationSummary } from './bookmark-classify.js';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export interface SearchResult {
   id: string;
@@ -194,7 +194,8 @@ function initSchema(db: Database): void {
     primary_category TEXT,
     github_urls TEXT,
     domains TEXT,
-    primary_domain TEXT
+    primary_domain TEXT,
+    quoted_tweet_json TEXT
   )`);
 
   db.run(`CREATE INDEX IF NOT EXISTS idx_bookmarks_author ON bookmarks(author_handle)`);
@@ -228,11 +229,28 @@ function ensureMigrations(db: Database): void {
       try { db.run('ALTER TABLE bookmarks ADD COLUMN primary_domain TEXT'); } catch { /* already exists */ }
       db.run('CREATE INDEX IF NOT EXISTS idx_bookmarks_domain ON bookmarks(primary_domain)');
     }
-    db.run("REPLACE INTO meta VALUES ('schema_version', '3')");
+  }
+  if (version < 4) {
+    const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='bookmarks'");
+    if (tableExists.length && tableExists[0].values.length > 0) {
+      try { db.run('ALTER TABLE bookmarks ADD COLUMN quoted_tweet_json TEXT'); } catch { /* already exists */ }
+    }
+  }
+  if (version < SCHEMA_VERSION) {
+    db.run(`REPLACE INTO meta VALUES ('schema_version', '${SCHEMA_VERSION}')`);
   }
 }
 
-function insertRecord(db: Database, r: BookmarkRecord): void {
+interface PreservedBookmarkFields {
+  categories: string | null;
+  primaryCategory: string | null;
+  githubUrls: string | null;
+  domains: string | null;
+  primaryDomain: string | null;
+  quotedTweetJson: string | null;
+}
+
+function insertRecord(db: Database, r: BookmarkRecord, preserved?: PreservedBookmarkFields): void {
   // Extract GitHub URLs (kept inline — no LLM needed for URL parsing)
   const text = r.text ?? '';
   const githubMatches = text.match(/github\.com\/[\w.-]+\/[\w.-]+/gi) ?? [];
@@ -240,7 +258,7 @@ function insertRecord(db: Database, r: BookmarkRecord): void {
   const githubUrls = [...new Set([...githubMatches.map((m) => `https://${m}`), ...githubFromLinks])];
 
   db.run(
-    `INSERT OR REPLACE INTO bookmarks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT OR REPLACE INTO bookmarks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       r.id,
       r.tweetId,
@@ -267,11 +285,12 @@ function insertRecord(db: Database, r: BookmarkRecord): void {
       r.links?.length ? JSON.stringify(r.links) : null,
       r.tags?.length ? JSON.stringify(r.tags) : null,
       r.ingestedVia ?? null,
-      null, // categories — populated by classify pass
-      'unclassified', // primary_category
-      githubUrls.length ? JSON.stringify(githubUrls) : null,
-      null, // domains — populated by classify-domains pass
-      null, // primary_domain
+      preserved?.categories ?? null,
+      preserved?.primaryCategory ?? 'unclassified',
+      preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null),
+      preserved?.domains ?? null,
+      preserved?.primaryDomain ?? null,
+      r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null),
     ]
   );
 }
@@ -292,23 +311,38 @@ export async function buildIndex(options?: { force?: boolean }): Promise<{ dbPat
     initSchema(db);
     ensureMigrations(db);
 
-    // Get existing IDs to skip
-    const existingIds = new Set<string>();
+    // Preserve classification and enrichment fields when refreshing existing rows.
+    const existingRows = new Map<string, PreservedBookmarkFields>();
     try {
-      const rows = db.exec('SELECT id FROM bookmarks');
+      const rows = db.exec(
+        `SELECT id, categories, primary_category, github_urls, domains, primary_domain, quoted_tweet_json
+         FROM bookmarks`
+      );
       for (const r of (rows[0]?.values ?? [])) {
-        existingIds.add(r[0] as string);
+        existingRows.set(r[0] as string, {
+          categories: (r[1] as string) ?? null,
+          primaryCategory: (r[2] as string) ?? null,
+          githubUrls: (r[3] as string) ?? null,
+          domains: (r[4] as string) ?? null,
+          primaryDomain: (r[5] as string) ?? null,
+          quotedTweetJson: (r[6] as string) ?? null,
+        });
       }
     } catch { /* table may be empty */ }
 
-    const newRecords: BookmarkRecord[] = records.filter(r => !existingIds.has(r.id));
+    const newRecords: BookmarkRecord[] = records.filter(r => !existingRows.has(r.id));
 
-    if (newRecords.length > 0) {
+    if (records.length > 0) {
       db.run('BEGIN TRANSACTION');
-      for (const record of newRecords) {
-        insertRecord(db, record);
+      try {
+        for (const record of records) {
+          insertRecord(db, record, existingRows.get(record.id));
+        }
+        db.run('COMMIT');
+      } catch (err) {
+        db.run('ROLLBACK');
+        throw err;
       }
-      db.run('COMMIT');
     }
 
     // Rebuild FTS index from content table
@@ -380,7 +414,16 @@ export async function searchBookmarks(options: SearchOptions): Promise<SearchRes
     }
     params.push(limit);
 
-    const rows = db.exec(sql, params);
+    let rows;
+    try {
+      rows = db.exec(sql, params);
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('fts5') || msg.includes('MATCH') || msg.includes('syntax')) {
+        throw new Error(`Invalid search query: "${options.query}". Try simpler terms or wrap phrases in double quotes.`);
+      }
+      throw err;
+    }
     if (!rows.length) return [];
 
     return rows[0].values.map((row) => ({
@@ -671,9 +714,10 @@ export interface CategorySample {
 export async function sampleByCategory(
   category: string,
   limit: number,
+  existingDb?: Database,
 ): Promise<CategorySample[]> {
-  const dbPath = twitterBookmarksIndexPath();
-  const db = await openDb(dbPath);
+  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
       `SELECT id, url, text, author_handle, categories, github_urls, links_json
@@ -684,7 +728,7 @@ export async function sampleByCategory(
       [`%${category}%`, limit]
     );
     if (!rows.length) return [];
-    return rows[0].values.map((r) => ({
+    return rows[0].values.map((r: any) => ({
       id: r[0] as string,
       url: r[1] as string,
       text: r[2] as string,
@@ -694,14 +738,13 @@ export async function sampleByCategory(
       links: (r[6] as string) ?? undefined,
     }));
   } finally {
-    db.close();
+    if (!existingDb) db.close();
   }
 }
 
-export async function getCategoryCounts(): Promise<Record<string, number>> {
-  const dbPath = twitterBookmarksIndexPath();
-  const db = await openDb(dbPath);
-  ensureMigrations(db);
+export async function getCategoryCounts(existingDb?: Database): Promise<Record<string, number>> {
+  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
       `SELECT primary_category, COUNT(*) as c FROM bookmarks
@@ -714,14 +757,13 @@ export async function getCategoryCounts(): Promise<Record<string, number>> {
     }
     return counts;
   } finally {
-    db.close();
+    if (!existingDb) db.close();
   }
 }
 
-export async function getDomainCounts(): Promise<Record<string, number>> {
-  const dbPath = twitterBookmarksIndexPath();
-  const db = await openDb(dbPath);
-  ensureMigrations(db);
+export async function getDomainCounts(existingDb?: Database): Promise<Record<string, number>> {
+  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
       `SELECT primary_domain, COUNT(*) as c FROM bookmarks
@@ -734,17 +776,17 @@ export async function getDomainCounts(): Promise<Record<string, number>> {
     }
     return counts;
   } finally {
-    db.close();
+    if (!existingDb) db.close();
   }
 }
 
 export async function sampleByDomain(
   domain: string,
   limit: number,
+  existingDb?: Database,
 ): Promise<CategorySample[]> {
-  const dbPath = twitterBookmarksIndexPath();
-  const db = await openDb(dbPath);
-  ensureMigrations(db);
+  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  if (!existingDb) ensureMigrations(db);
   try {
     const rows = db.exec(
       `SELECT id, url, text, author_handle, categories, github_urls, links_json
@@ -755,7 +797,7 @@ export async function sampleByDomain(
       [`%${domain}%`, limit]
     );
     if (!rows.length) return [];
-    return rows[0].values.map((r) => ({
+    return rows[0].values.map((r: any) => ({
       id: r[0] as string,
       url: r[1] as string,
       text: r[2] as string,
@@ -764,6 +806,115 @@ export async function sampleByDomain(
       githubUrls: (r[5] as string) ?? undefined,
       links: (r[6] as string) ?? undefined,
     }));
+  } finally {
+    if (!existingDb) db.close();
+  }
+}
+
+export async function sampleByAuthor(
+  authorHandle: string,
+  limit: number,
+  existingDb?: Database,
+): Promise<CategorySample[]> {
+  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  if (!existingDb) ensureMigrations(db);
+  try {
+    const rows = db.exec(
+      `SELECT id, url, text, author_handle, categories, github_urls, links_json
+       FROM bookmarks
+       WHERE author_handle = ? COLLATE NOCASE
+       ORDER BY COALESCE(posted_at, bookmarked_at) DESC
+       LIMIT ?`,
+      [authorHandle, limit]
+    );
+    if (!rows.length) return [];
+    return rows[0].values.map((r: any) => ({
+      id: r[0] as string,
+      url: r[1] as string,
+      text: r[2] as string,
+      authorHandle: (r[3] as string) ?? undefined,
+      categories: (r[4] as string) ?? '',
+      githubUrls: (r[5] as string) ?? undefined,
+      links: (r[6] as string) ?? undefined,
+    }));
+  } finally {
+    if (!existingDb) db.close();
+  }
+}
+
+export async function getTopAuthorHandles(
+  minCount: number,
+  existingDb?: Database,
+): Promise<{ handle: string; count: number }[]> {
+  const db = existingDb ?? await openDb(twitterBookmarksIndexPath());
+  if (!existingDb) ensureMigrations(db);
+  try {
+    const rows = db.exec(
+      `SELECT author_handle, COUNT(*) as c FROM bookmarks
+       WHERE author_handle IS NOT NULL
+       GROUP BY author_handle
+       HAVING c >= ?
+       ORDER BY c DESC`,
+      [minCount]
+    );
+    return (rows[0]?.values ?? []).map((r: any) => ({
+      handle: r[0] as string,
+      count: r[1] as number,
+    }));
+  } finally {
+    if (!existingDb) db.close();
+  }
+}
+
+/**
+ * Open the bookmarks DB with migrations applied. Caller is responsible for
+ * closing the handle.
+ */
+export async function openBookmarksDb(): Promise<Database> {
+  const db = await openDb(twitterBookmarksIndexPath());
+  ensureMigrations(db);
+  return db;
+}
+
+export { type Database } from 'sql.js';
+
+// ── Gap-fill helpers ────────────────────────────────────────────────────
+
+export async function updateQuotedTweets(
+  records: Array<{ id: string; quotedTweet: QuotedTweetSnapshot }>,
+): Promise<void> {
+  const dbPath = twitterBookmarksIndexPath();
+  const db = await openDb(dbPath);
+  ensureMigrations(db);
+
+  try {
+    const stmt = db.prepare('UPDATE bookmarks SET quoted_tweet_json = ? WHERE id = ?');
+    for (const record of records) {
+      stmt.run([JSON.stringify(record.quotedTweet), record.id]);
+    }
+    stmt.free();
+    saveDb(db, dbPath);
+  } finally {
+    db.close();
+  }
+}
+
+export async function updateBookmarkText(
+  records: Array<{ id: string; text: string }>,
+): Promise<void> {
+  const dbPath = twitterBookmarksIndexPath();
+  const db = await openDb(dbPath);
+  ensureMigrations(db);
+
+  try {
+    const stmt = db.prepare('UPDATE bookmarks SET text = ? WHERE id = ?');
+    for (const record of records) {
+      stmt.run([record.text, record.id]);
+    }
+    stmt.free();
+    // Rebuild FTS to reflect updated text
+    db.run("INSERT INTO bookmarks_fts(bookmarks_fts) VALUES('rebuild')");
+    saveDb(db, dbPath);
   } finally {
     db.close();
   }

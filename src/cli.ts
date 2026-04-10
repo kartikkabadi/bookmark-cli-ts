@@ -3,8 +3,8 @@ import { Command } from 'commander';
 import { syncTwitterBookmarks } from './bookmarks.js';
 import { getBookmarkStatusView, formatBookmarkStatus } from './bookmarks-service.js';
 import { runTwitterOAuthFlow } from './xauth.js';
-import { syncBookmarksGraphQL } from './graphql-bookmarks.js';
-import type { SyncProgress } from './graphql-bookmarks.js';
+import { syncBookmarksGraphQL, syncGaps } from './graphql-bookmarks.js';
+import type { SyncProgress, GapFillProgress } from './graphql-bookmarks.js';
 import { fetchBookmarkMediaBatch } from './bookmark-media.js';
 import {
   buildIndex,
@@ -20,21 +20,67 @@ import {
 } from './bookmarks-db.js';
 import { formatClassificationSummary } from './bookmark-classify.js';
 import { classifyWithLlm, classifyDomainsWithLlm } from './bookmark-classify-llm.js';
+import { resolveEngine, detectAvailableEngines } from './engine.js';
+import { loadPreferences, savePreferences } from './preferences.js';
+import { compileMd } from './md.js';
+import { askMd } from './md-ask.js';
+import { lintMd, fixLintIssues } from './md-lint.js';
+import { exportBookmarks } from './md-export.js';
 import { renderViz } from './bookmarks-viz.js';
-import { dataDir, ensureDataDir, isFirstRun, twitterBookmarksIndexPath } from './paths.js';
-import { getBrowserUserDataDir, detectBrowser, type BrowserType } from './config.js';
+import { listBrowserIds } from './browsers.js';
+import { dataDir, ensureDataDir, isFirstRun, twitterBookmarksIndexPath, twitterBackfillStatePath, mdDir } from './paths.js';
+import { PromptCancelledError, promptText } from './prompt.js';
+import { skillWithFrontmatter, installSkill, uninstallSkill } from './skill.js';
 import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
 let spinnerIdx = 0;
 
-function renderProgress(status: SyncProgress, startTime: number): void {
-  const elapsed = Math.round((Date.now() - startTime) / 1000);
-  const spin = SPINNER[spinnerIdx++ % SPINNER.length];
-  const line = `  ${spin} Syncing bookmarks...  ${status.newAdded} new  \u2502  page ${status.page}  \u2502  ${elapsed}s`;
-  process.stderr.write(`\r\x1b[K${line}`);
+/** Creates a spinner that animates independently of data callbacks. */
+function createSpinner(renderLine: () => string): { update: () => void; stop: () => void } {
+  let line = '';
+  let stopped = false;
+  const tick = () => {
+    if (stopped) return;
+    const spin = SPINNER[spinnerIdx++ % SPINNER.length];
+    process.stderr.write(`\r\x1b[K  ${spin} ${line}`);
+  };
+  const interval = setInterval(tick, 80);
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(interval);
+    process.stderr.write('\n');
+  };
+
+  // Graceful interrupt — stop spinner, show friendly message
+  const onSigint = () => {
+    stop();
+    console.log('\n  Interrupted. Your data is safe \u2014 progress has been saved.');
+    console.log('  Run the same command again to pick up where you left off.\n');
+    process.exit(0);
+  };
+  process.once('SIGINT', onSigint);
+
+  return {
+    update: () => { line = renderLine(); },
+    stop: () => { process.removeListener('SIGINT', onSigint); stop(); },
+  };
+}
+
+export async function runWithSpinner<T>(
+  spinner: { stop: () => void },
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } finally {
+    spinner.stop();
+  }
 }
 
 const FRIENDLY_STOP_REASONS: Record<string, string> = {
@@ -51,30 +97,155 @@ function friendlyStopReason(raw?: string): string {
   return FRIENDLY_STOP_REASONS[raw] ?? `Sync complete \u2014 ${raw}`;
 }
 
-const LOGO = `
-   \x1b[2m\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\x1b[0m
-   \x1b[2m\u2502\x1b[0m  \x1b[1mF i e l d   T h e o r y\x1b[0m    \x1b[2m\u2502\x1b[0m
-   \x1b[2m\u2502\x1b[0m  \x1b[2mfieldtheory.dev/cli\x1b[0m        \x1b[2m\u2502\x1b[0m
-   \x1b[2m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\x1b[0m`;
+function warnIfEmpty(totalBookmarks: number): void {
+  if (totalBookmarks > 0) return;
+  console.log(`  \u26a0 No bookmarks were found. This usually means:`);
+  console.log(`    \u2022 The browser needs to be fully quit first (Cmd+Q / close all windows)`);
+  console.log(`    \u2022 Keychain/keyring access was denied`);
+  console.log(`    \u2022 You may be logged into a different profile than the one with X/Twitter`);
+  console.log(`    \u2022 Try: ft sync --cookies <ct0> <auth_token>  (paste from DevTools)\n`);
+}
+
+// ── Update checker ────────────────────────────────────────────────────────
+
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
+
+function getLocalVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json');
+    return pkg.version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  }
+  return 0;
+}
+
+async function checkForUpdate(): Promise<void> {
+  try {
+    const cacheFile = path.join(dataDir(), '.update-check');
+    // Re-fetch from npm if cache is stale (>24hr)
+    let needsFetch = true;
+    try {
+      const stat = fs.statSync(cacheFile);
+      if (Date.now() - stat.mtimeMs < UPDATE_CHECK_INTERVAL_MS) needsFetch = false;
+    } catch { /* file doesn't exist, fetch */ }
+
+    if (needsFetch) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch('https://registry.npmjs.org/fieldtheory/latest', {
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+      });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data?.version) fs.writeFileSync(cacheFile, data.version);
+      }
+    }
+
+    // Always show notice from cache
+    showCachedUpdateNotice();
+  } catch { /* network error, offline, etc — silently skip */ }
+}
+
+/** Sync version — reads cached check result. Used after help output where we can't await. */
+function showCachedUpdateNotice(): void {
+  try {
+    const cacheFile = path.join(dataDir(), '.update-check');
+    const latest = fs.readFileSync(cacheFile, 'utf-8').trim();
+    const local = getLocalVersion();
+    if (latest && compareVersions(latest, local) > 0) {
+      console.log(`\n  \u2728 Update available: ${local} \u2192 ${latest}  \u2014  npm update -g fieldtheory`);
+    }
+  } catch { /* no cache yet, skip */ }
+}
+
+// ── What's new ────────────────────────────────────────────────────────────
+
+const WHATS_NEW: Record<string, string[]> = {
+  '1.2.2': [
+    'ft sync --gaps \u2014 backfill missing quoted tweets and expand truncated articles',
+    'Quoted tweet content and full article text now captured automatically during sync',
+    'Bookmark date (when you bookmarked, not just when it was posted) now tracked',
+    'ft sync --rebuild replaces --full',
+    'Update notifications when a new version is available',
+  ],
+};
+
+function showWhatsNew(): void {
+  const version = getLocalVersion();
+  const versionFile = path.join(dataDir(), '.last-version');
+
+  let lastSeen: string | undefined;
+  try { lastSeen = fs.readFileSync(versionFile, 'utf-8').trim(); } catch { /* first run */ }
+
+  // Update the stored version
+  try { fs.writeFileSync(versionFile, version); } catch { /* read-only, etc */ }
+
+  if (!lastSeen || lastSeen === version) return;
+
+  // Collect features from all versions newer than lastSeen
+  const newFeatures: string[] = [];
+  for (const [v, features] of Object.entries(WHATS_NEW)) {
+    if (compareVersions(v, lastSeen) > 0 && compareVersions(v, version) <= 0) {
+      newFeatures.push(...features);
+    }
+  }
+
+  if (newFeatures.length === 0) return;
+
+  console.log(`\n  \x1b[1mWhat's new in v${version}:\x1b[0m`);
+  for (const feature of newFeatures) {
+    console.log(`    \u2022 ${feature}`);
+  }
+  console.log();
+}
+
+function logo(): string {
+  const v = getLocalVersion();
+  const vLabel = `v${v}`;
+  const innerW = 33;
+  const line1 = 'F i e l d   T h e o r y';
+  const line2 = 'fieldtheory.dev/cli';
+  const pad1 = innerW - line1.length - 3;
+  const pad2 = innerW - line2.length - vLabel.length - 4;
+  return `
+     \x1b[2m\u250c${'\u2500'.repeat(innerW)}\u2510\x1b[0m
+     \x1b[2m\u2502\x1b[0m  \x1b[1m${line1}\x1b[0m${' '.repeat(pad1)} \x1b[2m\u2502\x1b[0m
+     \x1b[2m\u2502\x1b[0m  \x1b[2m${line2}\x1b[0m${' '.repeat(Math.max(pad2, 1))}\x1b[2m${vLabel}\x1b[0m  \x1b[2m\u2502\x1b[0m
+     \x1b[2m\u2514${'\u2500'.repeat(innerW)}\u2518\x1b[0m`;
+}
 
 export function showWelcome(): void {
-  console.log(LOGO);
+  console.log(logo());
   console.log(`
-   Save a local copy of your X/Twitter bookmarks. Search them,
-   classify them, and make them available to any AI agent.
-   Your data never leaves your machine.
+  Save a local copy of your X/Twitter bookmarks. Search them,
+  classify them, and make them available to any AI agent.
+  Your data never leaves your machine.
 
-   Get started:
+  Get started:
 
-     1. Open your browser (Chrome or Helium) and log into x.com
-     2. Run: ft sync
+    1. Open your browser and log into x.com
+    2. Run: ft sync
 
+  Works with Chrome, Brave, Chromium, and Firefox on macOS/Linux.
   Data will be stored at: ${dataDir()}
 `);
 }
 
 export async function showDashboard(): Promise<void> {
-  console.log(LOGO);
+  console.log(logo());
   try {
     const view = await getBookmarkStatusView();
     const ago = view.lastUpdated ? timeAgo(view.lastUpdated) : 'never';
@@ -119,10 +290,16 @@ function timeAgo(dateStr: string): string {
 }
 
 function showSyncWelcome(): void {
+  const browsers = listBrowserIds().join(', ');
   console.log(`
-   Make sure your browser (Chrome or Helium) is open and logged into x.com.
-   Your browser session is used to authenticate — no passwords
-   are stored or transmitted.
+  Make sure your browser is open and logged into x.com.
+  Your browser session is used to authenticate \u2014 no passwords
+  are stored or transmitted.
+
+  Browser ids: ${browsers}
+  Use --browser <name> to choose.
+  Default auto-detect prefers installed Chrome-family browsers.
+  Firefox cookie extraction currently works on macOS and Linux.
 `);
 }
 
@@ -134,7 +311,7 @@ function requireData(): boolean {
 
   Get started:
 
-    1. Open your browser (Chrome or Helium) and log into x.com
+    1. Open your browser and log into x.com
     2. Run: ft sync
 `);
     process.exitCode = 1;
@@ -164,6 +341,11 @@ function safe(fn: (...args: any[]) => Promise<void>): (...args: any[]) => Promis
     try {
       await fn(...args);
     } catch (err) {
+      if (err instanceof PromptCancelledError) {
+        console.log(`\n  ${err.message}\n`);
+        process.exitCode = err.exitCode;
+        return;
+      }
       const msg = (err as Error).message;
       console.error(`\n  Error: ${msg}\n`);
       process.exitCode = 1;
@@ -176,8 +358,7 @@ function safe(fn: (...args: any[]) => Promise<void>): (...args: any[]) => Promis
 export function buildCli() {
   const program = new Command();
 
-  async function rebuildIndex(added: number): Promise<number> {
-    if (added <= 0) return 0;
+  async function rebuildIndex(): Promise<number> {
     process.stderr.write('  Building search index...\n');
     const idx = await buildIndex();
     process.stderr.write(`  \u2713 ${idx.recordCount} bookmarks indexed (${idx.newRecords} new)\n`);
@@ -185,9 +366,12 @@ export function buildCli() {
   }
 
   async function classifyNew(): Promise<void> {
+    const engine = await resolveEngine();
+
     const start = Date.now();
     process.stderr.write('  Classifying new bookmarks (categories)...\n');
     const catResult = await classifyWithLlm({
+      engine,
       onBatch: (done: number, total: number) => {
         const pct = total > 0 ? Math.round((done / total) * 100) : 0;
         const elapsed = Math.round((Date.now() - start) / 1000);
@@ -201,6 +385,7 @@ export function buildCli() {
     const domStart = Date.now();
     process.stderr.write('  Classifying new bookmarks (domains)...\n');
     const domResult = await classifyDomainsWithLlm({
+      engine,
       all: false,
       onBatch: (done: number, total: number) => {
         const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -216,10 +401,11 @@ export function buildCli() {
   program
     .name('ft')
     .description('Self-custody for your X/Twitter bookmarks. Sync, search, classify, and explore locally.')
-    .version('1.2.1')
+    .version('1.2.2')
     .showHelpAfterError()
     .hook('preAction', () => {
-      console.log(LOGO);
+      console.log(logo());
+      showWhatsNew();
     });
 
   // ── sync ────────────────────────────────────────────────────────────────
@@ -228,23 +414,109 @@ export function buildCli() {
     .command('sync')
     .description('Sync bookmarks from X into your local database')
     .option('--api', 'Use OAuth v2 API instead of Chrome session', false)
-    .option('--full', 'Full crawl instead of incremental sync', false)
+    .option('--rebuild', 'Full re-crawl of all bookmarks', false)
+    .option('--continue', 'Resume a previous sync that was interrupted or hit the page limit', false)
+    .option('--gaps', 'Backfill missing data (quoted tweets, truncated articles)', false)
+    .option('--yes', 'Skip confirmation prompts', false)
     .option('--classify', 'Classify new bookmarks with LLM after syncing', false)
-    .option('--max-pages <n>', 'Max pages to fetch', (v: string) => Number(v), 500)
+    .option('--max-pages <n>', 'Max pages to fetch (default: unlimited)', (v: string) => Number(v))
     .option('--target-adds <n>', 'Stop after N new bookmarks', (v: string) => Number(v))
     .option('--delay-ms <n>', 'Delay between requests in ms', (v: string) => Number(v), 600)
     .option('--max-minutes <n>', 'Max runtime in minutes', (v: string) => Number(v), 30)
-    .option('--chrome-user-data-dir <path>', 'Browser user-data directory')
-    .option('--chrome-profile-directory <name>', 'Browser profile name')
-    .option('--browser <name>', 'Browser to extract cookies from: chrome or helium')
+    .option('--browser <name>', 'Browser to read session from (chrome, chromium, brave, firefox, ...)')
+    .option('--cookies <values...>', 'Pass ct0 and auth_token directly (skips browser extraction)')
+    .option('--chrome-user-data-dir <path>', 'Chrome-family user-data directory')
+    .option('--chrome-profile-directory <name>', 'Chrome-family profile name')
+    .option('--firefox-profile-dir <path>', 'Firefox profile directory')
     .action(async (options) => {
       const firstRun = isFirstRun();
       if (firstRun) showSyncWelcome();
       ensureDataDir();
 
       try {
+        const mutuallyExclusive = [options.rebuild, options.continue, options.gaps].filter(Boolean).length;
+        if (mutuallyExclusive > 1) {
+          console.error('  Error: --rebuild, --continue, and --gaps cannot be used together.');
+          process.exitCode = 1;
+          return;
+        }
+
+        // ── gaps mode: backfill missing data for existing bookmarks ──
+        if (options.gaps) {
+          const startTime = Date.now();
+          process.stderr.write('  Filling gaps (quoted tweets, truncated text)...\n');
+          let lastProgress: GapFillProgress = { done: 0, total: 0, quotedFetched: 0, textExpanded: 0, failed: 0 };
+          const spinner = createSpinner(() => {
+            const p = lastProgress;
+            const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            return `${p.done}/${p.total} (${pct}%) \u2502 ${p.quotedFetched} quoted \u2502 ${p.textExpanded} expanded \u2502 ${p.failed} failed \u2502 ${elapsed}s`;
+          });
+          const result = await runWithSpinner(spinner, () => syncGaps({
+            delayMs: Number(options.delayMs) || 300,
+            onProgress: (progress: GapFillProgress) => {
+              lastProgress = progress;
+              spinner.update();
+            },
+          }));
+          if (result.total === 0 && result.bookmarkedAtRepaired === 0) {
+            console.log('  No gaps found \u2014 all bookmarks are fully enriched.');
+          } else {
+            if (result.quotedTweetsFilled > 0) console.log(`  \u2713 ${result.quotedTweetsFilled} quoted tweets filled`);
+            if (result.textExpanded > 0) console.log(`  \u2713 ${result.textExpanded} truncated texts expanded`);
+            if (result.bookmarkedAtRepaired > 0) {
+              console.log(`  \u2713 ${result.bookmarkedAtRepaired} invalid bookmark dates cleared`);
+              await rebuildIndex();
+            }
+            if (result.failed > 0) {
+              // Write failure log
+              const logPath = path.join(dataDir(), 'gaps-failures.json');
+              const byReason: Record<string, number> = {};
+              for (const f of result.failures) {
+                byReason[f.reason] = (byReason[f.reason] ?? 0) + 1;
+              }
+              fs.writeFileSync(logPath, JSON.stringify({ failures: result.failures, summary: byReason }, null, 2));
+
+              console.log(`  ${result.failed} unavailable:`);
+              for (const [reason, count] of Object.entries(byReason)) {
+                console.log(`    \u2022 ${count} ${reason}`);
+              }
+              console.log(`  Details: ${logPath}`);
+            }
+            if (result.bookmarkedAtMissing > 0) {
+              console.log(`  ${result.bookmarkedAtMissing} bookmarks missing a reliable bookmark date`);
+            }
+          }
+          return;
+        }
+
+        // ── rebuild confirmation ──
+        if (options.rebuild) {
+          const dir = dataDir();
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const backupDir = `${dir}-backup-${timestamp}`;
+
+          console.log(`  \u26a0 Rebuild will re-crawl all bookmarks from X.`);
+          console.log(`  Your existing data will be merged (not deleted), but`);
+          console.log(`  this is a full re-sync and may take a while.\n`);
+          console.log(`  To back up first, run:`);
+          console.log(`    cp -r ${dir} ${backupDir}\n`);
+
+          // Allow --yes to skip confirmation
+          if (!options.yes) {
+            const answer = await promptText('  Continue? (y/N) ', { output: process.stdout });
+            if (answer.kind === 'interrupt') {
+              throw new PromptCancelledError('Cancelled. Rebuild aborted.', 130);
+            }
+            if (answer.kind !== 'answer' || answer.value.toLowerCase() !== 'y') {
+              console.log('  Aborted.');
+              return;
+            }
+          }
+        }
+
         const useApi = Boolean(options.api);
-        const mode = Boolean(options.full) ? 'full' : 'incremental';
+        const mode = Boolean(options.rebuild) ? 'full' : 'incremental';
 
         if (useApi) {
           const result = await syncTwitterBookmarks(mode, {
@@ -252,36 +524,86 @@ export function buildCli() {
           });
           console.log(`\n  \u2713 ${result.added} new bookmarks synced (${result.totalBookmarks} total)`);
           console.log(`  \u2713 Data: ${dataDir()}\n`);
-          const newCount = await rebuildIndex(result.added);
+          warnIfEmpty(result.totalBookmarks);
+          const newCount = await rebuildIndex();
           if (options.classify && newCount > 0) {
             await classifyNew();
           }
         } else {
           const startTime = Date.now();
-          const browserFlag = options.browser?.toLowerCase();
-          const browser: BrowserType = browserFlag === 'helium' ? 'helium' : browserFlag === 'chrome' ? 'chrome' : detectBrowser();
-          const browserDataDir = options.chromeUserDataDir
-            ? String(options.chromeUserDataDir)
-            : getBrowserUserDataDir(browser);
-          const result = await syncBookmarksGraphQL({
-            incremental: !Boolean(options.full),
-            maxPages: Number(options.maxPages) || 500,
+          let lastSync: SyncProgress = { page: 0, totalFetched: 0, newAdded: 0, running: true, done: false };
+          const spinner = createSpinner(() => {
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            if (lastSync.stopReason && lastSync.running) {
+              return `${lastSync.stopReason}  \u2502  ${lastSync.newAdded} new  \u2502  ${elapsed}s`;
+            }
+            return `Syncing bookmarks...  ${lastSync.newAdded} new  \u2502  page ${lastSync.page}  \u2502  ${elapsed}s`;
+          });
+          // Parse --cookies <ct0> [auth_token] — variadic, gives us an array
+          let csrfToken: string | undefined;
+          let cookieHeader: string | undefined;
+          if (options.cookies && Array.isArray(options.cookies) && options.cookies.length > 0) {
+            csrfToken = String(options.cookies[0]);
+            const authToken = options.cookies.length > 1 ? String(options.cookies[1]) : undefined;
+            const parts = [`ct0=${csrfToken}`];
+            if (authToken) parts.push(`auth_token=${authToken}`);
+            cookieHeader = parts.join('; ');
+          }
+
+          // Load saved cursor for --continue mode
+          let resumeCursor: string | undefined;
+          if (options.continue) {
+            try {
+              const statePath = twitterBackfillStatePath();
+              const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+              resumeCursor = state?.lastCursor;
+            } catch { /* no state file yet */ }
+            if (resumeCursor) {
+              console.log('  Resuming from saved position...\n');
+            } else {
+              console.log('  No saved cursor — scanning past existing bookmarks to find new ones...\n');
+            }
+          }
+
+          // When continuing without a cursor, disable stale page limit so we can
+          // page through all existing bookmarks to reach the ones beyond the old cap.
+          // With a saved cursor we skip straight to where we left off, so the normal
+          // stale limit is fine.
+          const continueWithoutCursor = Boolean(options.continue) && !resumeCursor;
+
+          const result = await runWithSpinner(spinner, () => syncBookmarksGraphQL({
+            incremental: !Boolean(options.rebuild) && !Boolean(options.continue),
+            resumeCursor,
+            stalePageLimit: continueWithoutCursor ? Infinity : undefined,
+            maxPages: options.maxPages != null ? Number(options.maxPages) : undefined,
             targetAdds: typeof options.targetAdds === 'number' && !Number.isNaN(options.targetAdds) ? options.targetAdds : undefined,
             delayMs: Number(options.delayMs) || 600,
             maxMinutes: Number(options.maxMinutes) || 30,
-            chromeUserDataDir: browserDataDir,
+            browser: options.browser ? String(options.browser) : undefined,
+            csrfToken,
+            cookieHeader,
+            chromeUserDataDir: options.chromeUserDataDir ? String(options.chromeUserDataDir) : undefined,
             chromeProfileDirectory: options.chromeProfileDirectory ? String(options.chromeProfileDirectory) : undefined,
+            firefoxProfileDir: options.firefoxProfileDir ? String(options.firefoxProfileDir) : undefined,
             onProgress: (status: SyncProgress) => {
-              renderProgress(status, startTime);
-              if (status.done) process.stderr.write('\n');
+              lastSync = status;
+              spinner.update();
             },
-          });
+          }));
 
           console.log(`\n  \u2713 ${result.added} new bookmarks synced (${result.totalBookmarks} total)`);
           console.log(`  ${friendlyStopReason(result.stopReason)}`);
+          if (result.bookmarkedAtRepaired > 0) {
+            console.log(`  \u2713 ${result.bookmarkedAtRepaired} invalid bookmark dates cleared`);
+          }
+          if (result.bookmarkedAtMissing > 0) {
+            console.log(`  ${result.bookmarkedAtMissing} bookmarks missing a reliable bookmark date`);
+          }
           console.log(`  \u2713 Data: ${dataDir()}\n`);
 
-          const newCount = await rebuildIndex(result.added);
+          warnIfEmpty(result.totalBookmarks);
+
+          const newCount = await rebuildIndex();
           if (options.classify && newCount > 0) {
             await classifyNew();
           }
@@ -298,22 +620,22 @@ export function buildCli() {
           console.log(`\n  You can also just tell Claude to use the ft CLI to search and`);
           console.log(`  explore your bookmarks. It already knows how.\n`);
         }
+
       } catch (err) {
         const msg = (err as Error).message;
-        if (firstRun && (msg.includes('cookie') || msg.includes('Cookie') || msg.includes('Keychain'))) {
+        if (firstRun && (msg.includes('cookie') || msg.includes('Cookie') || msg.includes('Keychain') || msg.includes('Safe Storage'))) {
           console.log(`
   Couldn't connect to your browser session.
 
   To sync your bookmarks:
 
-    1. Open your browser (Chrome or Helium)
-    2. Go to x.com and make sure you're logged in
-    3. Run: ft sync
+    1. Open your browser and log into x.com
+    2. Run: ft sync
 
-  To use Helium specifically:
-    ft sync --browser helium
-
-  If you use multiple browser profiles, specify which one:
+  Options:
+    ft sync --browser brave           Use a specific browser
+    ft sync --browser firefox          Use Firefox
+    ft sync --cookies <ct0> <auth>     Pass cookies directly
     ft sync --chrome-profile-directory "Profile 1"
 `);
         } else {
@@ -453,9 +775,12 @@ export function buildCli() {
         console.log(`Indexed ${result.recordCount} bookmarks \u2192 ${result.dbPath}`);
         console.log(formatClassificationSummary(result.summary));
       } else {
+        const engine = await resolveEngine();
+
         let catStart = Date.now();
         process.stderr.write('Classifying categories with LLM (batches of 50, ~2 min per batch)...\n');
         const catResult = await classifyWithLlm({
+          engine,
           onBatch: (done: number, total: number) => {
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
             const elapsed = Math.round((Date.now() - catStart) / 1000);
@@ -468,6 +793,7 @@ export function buildCli() {
         let domStart = Date.now();
         process.stderr.write('\nClassifying domains with LLM (batches of 50, ~2 min per batch)...\n');
         const domResult = await classifyDomainsWithLlm({
+          engine,
           all: false,
           onBatch: (done: number, total: number) => {
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -487,9 +813,11 @@ export function buildCli() {
     .option('--all', 'Re-classify all bookmarks, not just missing')
     .action(safe(async (options) => {
       if (!requireData()) return;
+      const engine = await resolveEngine();
       const start = Date.now();
       process.stderr.write('Classifying bookmark domains with LLM (batches of 50, ~2 min per batch)...\n');
       const result = await classifyDomainsWithLlm({
+        engine,
         all: options.all ?? false,
         onBatch: (done: number, total: number) => {
           const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -498,6 +826,68 @@ export function buildCli() {
         },
       });
       console.log(`\nDomains: ${result.classified}/${result.totalUnclassified} classified`);
+    }));
+
+  // ── model ───────────────────────────────────────────────────────────────
+
+  program
+    .command('model')
+    .description('View or change the default LLM engine for classification')
+    .argument('[engine]', 'Set default engine directly (e.g. claude, codex)')
+    .action(safe(async (engineArg?: string) => {
+      const available = detectAvailableEngines();
+      const prefs = loadPreferences();
+
+      if (available.length === 0) {
+        console.log('  No LLM engines found on PATH.');
+        console.log('  Install one of:');
+        console.log('    - Claude Code: https://docs.anthropic.com/en/docs/claude-code');
+        console.log('    - Codex CLI:   https://github.com/openai/codex');
+        return;
+      }
+
+      // Direct set: ft model claude
+      if (engineArg) {
+        if (!available.includes(engineArg)) {
+          console.log(`  "${engineArg}" is not available. Found: ${available.join(', ')}`);
+          process.exitCode = 1;
+          return;
+        }
+        savePreferences({ ...prefs, defaultEngine: engineArg });
+        console.log(`  \u2713 Default model set to ${engineArg}`);
+        return;
+      }
+
+      // Interactive picker
+      console.log('  Available engines:\n');
+      for (const name of available) {
+        const marker = name === prefs.defaultEngine ? ' (default)' : '';
+        console.log(`    ${name}${marker}`);
+      }
+      console.log();
+
+      if (!process.stdin.isTTY) {
+        if (prefs.defaultEngine) console.log(`  Current default: ${prefs.defaultEngine}`);
+        console.log('  Set with: ft model <engine>');
+        return;
+      }
+
+      const answer = await promptText('  Select default: ');
+      if (answer.kind === 'interrupt') {
+        throw new PromptCancelledError('Cancelled. No default model saved.', 130);
+      }
+      if (answer.kind === 'close' || !answer.value) {
+        console.log('  No default model saved.');
+        return;
+      }
+
+      if (available.includes(answer.value)) {
+        savePreferences({ ...prefs, defaultEngine: answer.value });
+        console.log(`  \u2713 Default model set to ${answer.value}`);
+      } else {
+        console.log(`  "${answer.value}" is not available. Found: ${available.join(', ')}`);
+        process.exitCode = 1;
+      }
     }));
 
   // ── categories ──────────────────────────────────────────────────────────
@@ -619,11 +1009,185 @@ export function buildCli() {
       console.log(JSON.stringify(result, null, 2));
     }));
 
+  // ── ft md ── Export bookmarks as markdown files ────────────────────────
+
+  program
+    .command('md')
+    .description('Export bookmarks as individual markdown files')
+    .option('--force', 'Re-export all bookmarks (overwrite existing files)')
+    .action(safe(async (options) => {
+      if (!requireIndex()) return;
+      let lastLine = '';
+      const spinner = createSpinner(() => lastLine);
+      const result = await exportBookmarks({
+        force: options.force,
+        onProgress: (s) => {
+          lastLine = s;
+          spinner.update();
+        },
+      });
+      spinner.stop();
+      const skippedNote = result.skipped > 0 ? ` (${result.skipped} already existed)` : '';
+      console.log(`Exported ${result.exported}/${result.total} bookmarks${skippedNote}`);
+      console.log(`  ${result.elapsed}s elapsed`);
+      console.log(`\n  Open in your markdown viewer:\n  ${mdDir()}`);
+    }));
+
+  // ── ft wiki ── Compile Karpathy-style knowledge base ────────────────────
+
+  program
+    .command('wiki')
+    .description('Compile Karpathy-style markdown wiki from bookmarks')
+    .option('--full', 'Recompile all pages (ignore incremental cache)')
+    .action(safe(async (options) => {
+      if (!requireIndex()) return;
+      const start = Date.now();
+      let lastLine = '';
+      const spinner = createSpinner(() => lastLine);
+      const result = await compileMd({
+        full: options.full,
+        onProgress: (s) => {
+          lastLine = s;
+          spinner.update();
+        },
+      });
+      spinner.stop();
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      const failed = result.pagesFailed > 0 ? ` failed=${result.pagesFailed}` : '';
+      console.log(`Done (${elapsed}s) — engine=${result.engine} created=${result.pagesCreated} updated=${result.pagesUpdated} skipped=${result.pagesSkipped}${failed} total=${result.totalPages}`);
+      if (result.pagesFailed > 0) {
+        console.log(`\n  ${result.pagesFailed} page(s) failed — re-run ft wiki to retry them.`);
+      }
+      console.log(`\n  Open in your markdown viewer:\n  ${mdDir()}`);
+    }));
+
+  // ── ft ask ── Q&A against the knowledge base ──────────────────────────
+
+  program
+    .command('ask')
+    .description('Ask a question against the markdown knowledge base')
+    .argument('<question>', 'The question to answer')
+    .option('--save', 'Save the answer as a concept page')
+    .option('--json', 'Output JSON instead of text')
+    .action(safe(async (question, options) => {
+      if (!requireIndex()) return;
+      let lastLine = '';
+      const spinner = createSpinner(() => lastLine);
+      const result = await askMd(question, {
+        save: options.save,
+        onProgress: (s) => {
+          lastLine = s;
+          spinner.update();
+        },
+      });
+      spinner.stop();
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`\n${result.answer}`);
+        if (result.pagesRead.length > 0) {
+          console.log(`\nSources: ${result.pagesRead.join(', ')}`);
+        }
+        if (result.wikiUpdates.length > 0) {
+          console.log('\nSuggested updates:');
+          for (const u of result.wikiUpdates) console.log(`  - ${u}`);
+        }
+        if (result.savedAs) {
+          console.log(`\nSaved to: ${result.savedAs}`);
+        }
+      }
+    }));
+
+  // ── ft lint ── Health-check the markdown wiki ─────────────────────────
+
+  program
+    .command('lint')
+    .description('Health-check the markdown knowledge base')
+    .option('--fix', 'Auto-fix fixable issues with targeted recompile')
+    .option('--json', 'Output JSON instead of text')
+    .action(safe(async (options) => {
+      if (!requireIndex()) return;
+      const result = await lintMd();
+
+      if (options.fix && result.issues.some((i) => i.fixable)) {
+        console.log('Fixing issues...');
+        const fixed = await fixLintIssues(result.issues);
+        console.log(`Fixed ${fixed} pages.`);
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      console.log(`Pages: ${result.stats.totalPages}  Links: ${result.stats.totalLinks}  Health: ${result.stats.healthScore}%`);
+      if (result.issues.length === 0) {
+        console.log('No issues found.');
+      } else {
+        for (const issue of result.issues) {
+          const page = issue.page ? ` ${issue.page}` : '';
+          const fix = issue.fixable ? ' (fixable)' : '';
+          console.log(`  [${issue.type}]${page}: ${issue.detail}${fix}`);
+        }
+      }
+    }));
+
+  // ── skill ──────────────────────────────────────────────────────────────
+
+  const skill = program
+    .command('skill')
+    .description('Install the /fieldtheory skill for AI coding agents');
+
+  skill
+    .command('install')
+    .description('Install skill for detected agents (Claude Code, Codex)')
+    .action(safe(async () => {
+      const results = await installSkill();
+      if (results.length === 0) {
+        console.log('  No agents detected. Use `ft skill show` to copy manually.');
+        return;
+      }
+      const labels: Record<string, string> = {
+        installed: 'Installed',
+        updated: 'Updated',
+        'up-to-date': 'Already up to date',
+      };
+      for (const r of results) {
+        console.log(`  ${labels[r.action] ?? r.action} for ${r.agent}: ${r.path}`);
+      }
+      if (results.some((r) => r.action === 'installed' || r.action === 'updated')) {
+        console.log(`\n  Try: /fieldtheory in Claude Code, or ask about your bookmarks in Codex.`);
+      }
+    }));
+
+  skill
+    .command('show')
+    .description('Print skill content to stdout')
+    .action(() => {
+      process.stdout.write(skillWithFrontmatter());
+    });
+
+  skill
+    .command('uninstall')
+    .description('Remove installed skill files')
+    .action(safe(async () => {
+      const results = uninstallSkill();
+      if (results.length === 0) {
+        console.log('  No installed skills found.');
+        return;
+      }
+      for (const r of results) {
+        console.log(`  Removed from ${r.agent}: ${r.path}`);
+      }
+    }));
+
   // ── hidden backward-compat aliases ────────────────────────────────────
 
   const bookmarksAlias = program.command('bookmarks').description('(alias) Bookmark commands').helpOption(false);
   for (const cmd of ['sync', 'search', 'list', 'show', 'stats', 'viz', 'classify', 'classify-domains',
-    'categories', 'domains', 'index', 'auth', 'status', 'path', 'sample', 'fetch-media']) {
+    'categories', 'domains', 'model', 'index', 'auth', 'status', 'path', 'sample', 'fetch-media']) {
     bookmarksAlias.command(cmd).description(`Alias for: ft ${cmd}`).allowUnknownOption(true)
       .action(async () => {
         const args = ['node', 'ft', cmd, ...process.argv.slice(4)];
@@ -635,9 +1199,13 @@ export function buildCli() {
     await program.parseAsync(args);
   });
 
+  program.on('afterHelp', showCachedUpdateNotice);
+
   return program;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  await buildCli().parseAsync(process.argv);
+  const program = buildCli();
+  program.hook('postAction', async () => { await checkForUpdate(); });
+  await program.parseAsync(process.argv);
 }

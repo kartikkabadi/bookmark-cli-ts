@@ -6,9 +6,10 @@
  * No API keys needed. No local models. Just a logged-in Claude or Codex CLI.
  */
 
-import { execFileSync } from 'node:child_process';
 import { openDb, saveDb } from './db.js';
 import { twitterBookmarksIndexPath } from './paths.js';
+import type { ResolvedEngine } from './engine.js';
+import { invokeEngine } from './engine.js';
 
 const BATCH_SIZE = 50;
 
@@ -23,36 +24,6 @@ interface LlmClassification {
   id: string;
   categories: string[];
   primary: string;
-}
-
-// ── Engine detection ────────────────────────────────────────────────────
-
-type Engine = 'claude' | 'codex';
-
-function detectEngine(): Engine | null {
-  try {
-    execFileSync('which', ['claude'], { stdio: 'ignore' });
-    return 'claude';
-  } catch { /* not found */ }
-  try {
-    execFileSync('which', ['codex'], { stdio: 'ignore' });
-    return 'codex';
-  } catch { /* not found */ }
-  return null;
-}
-
-function invokeEngine(engine: Engine, prompt: string): string {
-  const bin = engine === 'claude' ? 'claude' : 'codex';
-  const args = engine === 'claude'
-    ? ['-p', '--output-format', 'text', prompt]
-    : ['exec', prompt];
-
-  return execFileSync(bin, args, {
-    encoding: 'utf-8',
-    timeout: 120_000, // 2 minutes per batch
-    maxBuffer: 1024 * 1024,
-    stdio: ['pipe', 'pipe', 'ignore'],
-  }).trim();
 }
 
 // ── Text sanitization ───────────────────────────────────────────────────
@@ -131,7 +102,7 @@ function parseResponse(raw: string, batchIds: Set<string>): LlmClassification[] 
 // ── Main classification pipeline ────────────────────────────────────────
 
 export interface LlmClassifyResult {
-  engine: Engine;
+  engine: string;
   totalUnclassified: number;
   classified: number;
   failed: number;
@@ -139,17 +110,9 @@ export interface LlmClassifyResult {
 }
 
 export async function classifyWithLlm(
-  options: { onBatch?: (done: number, total: number) => void } = {},
+  options: { engine: ResolvedEngine; onBatch?: (done: number, total: number) => void },
 ): Promise<LlmClassifyResult> {
-  const engine = detectEngine();
-  if (!engine) {
-    throw new Error(
-      'No supported LLM CLI found.\n' +
-      'Install one of the following and log in:\n' +
-      '  - Claude Code: https://docs.anthropic.com/en/docs/claude-code\n' +
-      '  - Codex CLI:   https://github.com/openai/codex'
-    );
-  }
+  const { engine } = options;
 
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
@@ -163,7 +126,7 @@ export async function classifyWithLlm(
     );
 
     if (!rows.length || !rows[0].values.length) {
-      return { engine, totalUnclassified: 0, classified: 0, failed: 0, batches: 0 };
+      return { engine: engine.name, totalUnclassified: 0, classified: 0, failed: 0, batches: 0 };
     }
 
     const unclassified: UnclassifiedBookmark[] = rows[0].values.map(r => ({
@@ -211,7 +174,7 @@ export async function classifyWithLlm(
       }
     }
 
-    return { engine, totalUnclassified, classified, failed, batches: batchCount };
+    return { engine: engine.name, totalUnclassified, classified, failed, batches: batchCount };
   } finally {
     db.close();
   }
@@ -260,17 +223,9 @@ ${items}`;
 }
 
 export async function classifyDomainsWithLlm(
-  options: { all?: boolean; onBatch?: (done: number, total: number) => void } = {},
+  options: { engine: ResolvedEngine; all?: boolean; onBatch?: (done: number, total: number) => void },
 ): Promise<LlmClassifyResult> {
-  const engine = detectEngine();
-  if (!engine) {
-    throw new Error(
-      'No supported LLM CLI found.\n' +
-      'Install one of the following and log in:\n' +
-      '  - Claude Code: https://docs.anthropic.com/en/docs/claude-code\n' +
-      '  - Codex CLI:   https://github.com/openai/codex'
-    );
-  }
+  const { engine } = options;
 
   const dbPath = twitterBookmarksIndexPath();
   const db = await openDb(dbPath);
@@ -289,7 +244,7 @@ export async function classifyDomainsWithLlm(
     );
 
     if (!rows.length || !rows[0].values.length) {
-      return { engine, totalUnclassified: 0, classified: 0, failed: 0, batches: 0 };
+      return { engine: engine.name, totalUnclassified: 0, classified: 0, failed: 0, batches: 0 };
     }
 
     const bookmarks: DomainBookmark[] = rows[0].values.map(r => ({
@@ -334,7 +289,7 @@ export async function classifyDomainsWithLlm(
       }
     }
 
-    return { engine, totalUnclassified: total, classified, failed, batches: batchCount };
+    return { engine: engine.name, totalUnclassified: total, classified, failed, batches: batchCount };
   } finally {
     db.close();
   }

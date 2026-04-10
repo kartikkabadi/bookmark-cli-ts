@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   convertTweetToRecord,
   parseBookmarksResponse,
+  sanitizeBookmarkedAt,
   scoreRecord,
   mergeBookmarkRecord,
   mergeRecords,
@@ -217,6 +218,158 @@ test('convertTweetToRecord: handles tweet with no user results', () => {
   assert.equal(result.url, 'https://x.com/_/status/999');
 });
 
+test('convertTweetToRecord: prefers note tweet text for articles/long-form', () => {
+  const tr = makeTweetResult({
+    legacy: { full_text: 'Truncated text...' },
+    tweet: {
+      note_tweet: {
+        note_tweet_results: {
+          result: {
+            text: 'This is the full article text that would normally be truncated in legacy.full_text',
+          },
+        },
+      },
+    },
+  });
+  const result = convertTweetToRecord(tr, NOW);
+  assert.ok(result);
+  assert.equal(result.text, 'This is the full article text that would normally be truncated in legacy.full_text');
+});
+
+test('convertTweetToRecord: falls back to legacy text when no note tweet', () => {
+  const result = convertTweetToRecord(makeTweetResult(), NOW);
+  assert.ok(result);
+  assert.equal(result.text, 'Hello world, this is a test tweet!');
+});
+
+test('convertTweetToRecord: extracts quoted tweet snapshot', () => {
+  const tr = makeTweetResult({
+    legacy: { quoted_status_id_str: '5555555' },
+    tweet: {
+      quoted_status_result: {
+        result: {
+          rest_id: '5555555',
+          legacy: {
+            id_str: '5555555',
+            full_text: 'This is the quoted tweet text',
+            created_at: 'Mon Mar 09 10:00:00 +0000 2026',
+            entities: { urls: [] },
+            extended_entities: {
+              media: [{
+                type: 'photo',
+                media_url_https: 'https://pbs.twimg.com/media/quoted.jpg',
+                expanded_url: 'https://x.com/quoteduser/status/5555555/photo/1',
+                original_info: { width: 800, height: 600 },
+              }],
+            },
+          },
+          core: {
+            user_results: {
+              result: {
+                rest_id: '6666',
+                core: { screen_name: 'quoteduser', name: 'Quoted User' },
+                avatar: { image_url: 'https://pbs.twimg.com/profile_images/6666/qt.jpg' },
+                legacy: {},
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const result = convertTweetToRecord(tr, NOW);
+  assert.ok(result);
+  assert.equal(result.quotedStatusId, '5555555');
+  assert.ok(result.quotedTweet);
+  assert.equal(result.quotedTweet!.id, '5555555');
+  assert.equal(result.quotedTweet!.text, 'This is the quoted tweet text');
+  assert.equal(result.quotedTweet!.authorHandle, 'quoteduser');
+  assert.equal(result.quotedTweet!.url, 'https://x.com/quoteduser/status/5555555');
+  assert.equal(result.quotedTweet!.media?.length, 1);
+});
+
+test('convertTweetToRecord: handles missing quoted tweet gracefully', () => {
+  const tr = makeTweetResult({
+    legacy: { quoted_status_id_str: '7777777' },
+  });
+  const result = convertTweetToRecord(tr, NOW);
+  assert.ok(result);
+  assert.equal(result.quotedStatusId, '7777777');
+  assert.equal(result.quotedTweet, undefined);
+});
+
+test('parseBookmarksResponse: extracts bookmarkedAt from sortIndex', () => {
+  const tr = makeTweetResult();
+  // Snowflake for a known date: encode March 11 2026 00:00:00 UTC (after tweet created_at of March 10 12:00)
+  // Twitter epoch: 1288834974657, target ms: 1773273600000
+  // offset = 1773273600000 - 1288834974657 = 484438625343
+  // snowflake = offset << 22 = 2031520476165046272
+  const resp = {
+    data: {
+      bookmark_timeline_v2: {
+        timeline: {
+          instructions: [{
+            type: 'TimelineAddEntries',
+            entries: [{
+              entryId: 'tweet-0',
+              sortIndex: '2031520476165046272',
+              content: {
+                itemContent: { tweet_results: { result: tr } },
+              },
+            }],
+          }],
+        },
+      },
+    },
+  };
+  const { records } = parseBookmarksResponse(resp, NOW);
+  assert.equal(records.length, 1);
+  assert.ok(records[0].bookmarkedAt);
+  // Should decode to March 11 2026
+  const parsed = new Date(records[0].bookmarkedAt!);
+  assert.ok(parsed.getFullYear() === 2026);
+  assert.ok(parsed.getMonth() === 2); // March = month 2
+});
+
+test('parseBookmarksResponse: handles missing sortIndex gracefully', () => {
+  const tr = makeTweetResult();
+  const resp = makeGraphQLResponse([tr]);
+  const { records } = parseBookmarksResponse(resp, NOW);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].bookmarkedAt, null); // no sortIndex = stays null
+});
+
+test('parseBookmarksResponse: clears sortIndex timestamps earlier than tweet creation', () => {
+  const tr = makeTweetResult({
+    legacy: {
+      created_at: 'Fri Apr 03 12:00:00 +0000 2026',
+    },
+  });
+  const resp = {
+    data: {
+      bookmark_timeline_v2: {
+        timeline: {
+          instructions: [{
+            type: 'TimelineAddEntries',
+            entries: [{
+              entryId: 'tweet-0',
+              // Decodes to 2024-11-27T21:53:29.879Z, which is impossible for a 2026 tweet.
+              sortIndex: '1861891119789912064',
+              content: {
+                itemContent: { tweet_results: { result: tr } },
+              },
+            }],
+          }],
+        },
+      },
+    },
+  };
+
+  const { records } = parseBookmarksResponse(resp, NOW);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].bookmarkedAt, null);
+});
+
 test('parseBookmarksResponse: parses entries and cursor', () => {
   const tr1 = makeTweetResult();
   const tr2 = makeTweetResult({ legacy: { id_str: '2222222', full_text: 'Second tweet' } });
@@ -368,10 +521,49 @@ test('mergeRecords: handles empty inputs', () => {
   assert.equal(added, 0);
 });
 
+test('sanitizeBookmarkedAt: clears timestamps earlier than postedAt', () => {
+  const record = sanitizeBookmarkedAt(makeRecord({
+    postedAt: 'Fri Apr 03 12:00:00 +0000 2026',
+    bookmarkedAt: '2024-11-26T00:00:00.000Z',
+  }));
+
+  assert.equal(record.bookmarkedAt, null);
+});
+
+test('sanitizeBookmarkedAt: clears timestamps too far after syncedAt', () => {
+  const record = sanitizeBookmarkedAt(makeRecord({
+    postedAt: 'Tue Mar 10 12:00:00 +0000 2026',
+    syncedAt: '2026-03-28T00:00:00.000Z',
+    bookmarkedAt: '2026-03-29T00:00:00.000Z',
+  }));
+
+  assert.equal(record.bookmarkedAt, null);
+});
+
+test('sanitizeBookmarkedAt: preserves valid timestamp within range', () => {
+  const record = sanitizeBookmarkedAt(makeRecord({
+    postedAt: 'Tue Mar 10 12:00:00 +0000 2026',
+    syncedAt: '2026-03-28T00:00:00.000Z',
+    bookmarkedAt: '2026-03-15T00:00:00.000Z',
+  }));
+
+  assert.equal(record.bookmarkedAt, '2026-03-15T00:00:00.000Z');
+});
+
+test('sanitizeBookmarkedAt: returns record unchanged when bookmarkedAt is null', () => {
+  const input = makeRecord({ postedAt: '2026-03-10', bookmarkedAt: null });
+  const result = sanitizeBookmarkedAt(input);
+
+  assert.equal(result.bookmarkedAt, null);
+  assert.strictEqual(result, input); // same reference — no unnecessary copy
+});
+
 test('formatSyncResult: formats all fields', () => {
   const result = formatSyncResult({
     added: 50,
+    bookmarkedAtRepaired: 7,
     totalBookmarks: 6000,
+    bookmarkedAtMissing: 12,
     pages: 300,
     stopReason: 'end of bookmarks',
     cachePath: '/tmp/cache.jsonl',
@@ -379,7 +571,9 @@ test('formatSyncResult: formats all fields', () => {
   });
 
   assert.ok(result.includes('50'));
+  assert.ok(result.includes('7'));
   assert.ok(result.includes('6000'));
+  assert.ok(result.includes('12'));
   assert.ok(result.includes('300'));
   assert.ok(result.includes('end of bookmarks'));
   assert.ok(result.includes('/tmp/cache.jsonl'));

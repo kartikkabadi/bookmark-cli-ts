@@ -35,5 +35,7 @@ export function saveDb(db: Database, filePath: string): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const data = db.export();
-  fs.writeFileSync(filePath, Buffer.from(data));
+  const tmp = filePath + '.tmp';
+  fs.writeFileSync(tmp, Buffer.from(data));
+  fs.renameSync(tmp, filePath);
 }
