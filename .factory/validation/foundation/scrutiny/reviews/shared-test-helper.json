@@ -1,0 +1,34 @@
+{
+  "featureId": "shared-test-helper",
+  "reviewedAt": "2026-04-10T16:35:00.000Z",
+  "commitId": "24744d8",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The shared withIsolatedDataDir() test helper is properly implemented in tests/helpers.ts. It creates a temp directory, sets FT_DATA_DIR, runs the callback, and restores/cleans up in a finally block. The helper has 8 thorough unit tests in helpers.test.ts covering creation, env var setting, restoration, cleanup (including on error), nested async operations, undefined env var, and file I/O. At least 2 existing test files (bookmarks-db.test.ts and bookmarks-service.test.ts) were refactored to use the shared helper. Both validation assertions pass.",
+    "issues": [
+      {
+        "file": "tests/helpers.ts",
+        "line": 30,
+        "severity": "suggestion",
+        "description": "The helper uses a synchronous mkdtempSync but an async cleanup with rm(). For consistency and to avoid blocking the event loop during test setup, consider using mkdtemp (async) instead of mkdtempSync.",
+        "suggestedFix": "Change `fs.mkdtempSync(...)` to `await fs.promises.mkdtemp(...)` for consistency with the async cleanup pattern."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "library",
+      "observation": "The withIsolatedDataDir() helper creates temp directories with prefix 'ft-isolated-' in os.tmpdir(). Tests using this helper are safe to run in parallel since each gets its own temp dir and FT_DATA_DIR value. The helper properly handles both async and sync callbacks.",
+      "evidence": "tests/helpers.ts creates unique temp dirs via mkdtempSync and restores env vars in finally block. 3 test files now use it.",
+      "suggestedTarget": "library"
+    }
+  ],
+  "assertionResults": {
+    "VAL-FOUND-004": "pass",
+    "VAL-FOUND-005": "pass"
+  },
+  "addressesFailureFrom": null,
+  "summary": "Feature passes both validation assertions. The withIsolatedDataDir() helper exists in tests/helpers.ts with proper implementation (temp dir creation, env var management, cleanup in finally block). 8 unit tests cover the helper thoroughly including error cases. 2 existing test files (bookmarks-db.test.ts, bookmarks-service.test.ts) were refactored to use the shared helper. All 156 tests pass."
+}
