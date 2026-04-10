@@ -1,0 +1,56 @@
+{
+  "milestone": "coverage",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": { "passed": true, "command": "npm test", "exitCode": 0 },
+    "typecheck": { "passed": true, "command": "npx tsc --noEmit", "exitCode": 0 },
+    "lint": { "passed": true, "command": "npm run lint", "exitCode": 0 }
+  },
+  "reviewsSummary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added 'Known Bugs (Pre-existing, Not Blocking)' section to architecture.md documenting: validateMediaUrl IPv6 loopback gap, sanitizeExtFromContentType case sensitivity, sanitizeForPrompt regex limitation, parseResponse whitespace category bug.",
+      "sourceFeature": "multiple (tests-bookmark-media, tests-md-ask-prompts, tests-bookmark-classify-llm)"
+    },
+    {
+      "target": "library",
+      "description": "Added 'Modules with Top-Level Captured References' and 'Dynamic import() for Fresh Module State' sections to testing-patterns.md, documenting why t.mock.method() doesn't work for modules that capture os.homedir() at import time and how to use dynamic import() for fresh module state in integration tests.",
+      "sourceFeature": "tests-firefox-cookies, tests-utility-modules, cross-area-integration-tests"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Update test count from '148 tests' to '417 tests' (or '417+ tests') to reflect the current state after coverage milestone. The count has been stale since early milestones.",
+      "evidence": "AGENTS.md says '148 tests' but npm test now reports 417 tests. Cross-area integration test review noted this discrepancy.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Worker skill file (cli-worker) was not found at .factory/skills/cli-worker/SKILL.md",
+      "reason": "Expected behavior — skills are per-mission configuration, not persistent files. Not a real issue."
+    },
+    {
+      "observation": "Integration tests lack tags for selective execution",
+      "reason": "Minor suggestion, not actionable enough to warrant a convention change. The project uses tsx --test with glob patterns which already allows file-level selection."
+    },
+    {
+      "observation": "Env var cleanup pattern in config tests is fragile (no try/finally)",
+      "reason": "Already documented in testing-patterns.md under 'Environment Variable Cleanup in Tests'. The observation is a duplicate of existing guidance that workers are already aware of."
+    },
+    {
+      "observation": "The *ForTest export convention for testing internal functions",
+      "reason": "This is a useful pattern but not systemically applied or in need of documentation in AGENTS.md. It's a local testing pattern, not a project-wide convention that needs orchestrator-level guidance."
+    }
+  ],
+  "previousRound": null
+}

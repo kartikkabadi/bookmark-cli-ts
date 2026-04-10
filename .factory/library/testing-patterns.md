@@ -99,6 +99,31 @@ The `writeJson()` function in `fs.ts` always serializes via `JSON.stringify()`, 
 fs.writeFileSync(path, '{"processedIds": [')
 ```
 
+## Modules with Top-Level Captured References
+
+Some modules capture `os.homedir()` or `os.platform()` at import time or in non-mockable ways. For these modules, `t.mock.method(os, 'homedir', ...)` does not work because the module already captured the original function reference. Affected modules:
+
+- `firefox-cookies.ts` — `firefoxBaseDir()` calls `homedir()` at runtime but `detectFirefoxProfileDir` uses it internally
+- `chrome-cookies.ts` — similar pattern with platform detection
+- `browsers.ts` — `os.platform()` and `os.homedir()` used directly
+
+**Workaround**: Create real files/directories at the expected OS paths (inside `withIsolatedDataDir()` or using temp directories at real paths). The `withFakeFirefoxProfile` pattern in `firefox-cookies.test.ts` is an example.
+
+## Dynamic `import()` for Fresh Module State
+
+In integration tests, modules may cache state (e.g., database connections, loaded config) across test boundaries. To get a fresh module instance within an isolated test, use dynamic `await import()`:
+
+```ts
+test('CROSS-004: OAuth + gap-fill state', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const { saveTwitterOAuthToken, loadTwitterOAuthToken } = await import('../dist/xauth.js');
+    // Fresh module references within isolated data dir
+  });
+});
+```
+
+This ensures `dataDir()` resolves to the temp directory at module initialization time.
+
 ## Environment Variable Cleanup in Tests
 
 Config tests manually manage env var cleanup (`delete process.env.XYZ` after each test). This is fragile — a throw before cleanup pollutes subsequent tests. Use save/restore in try/finally:

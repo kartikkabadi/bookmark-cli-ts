@@ -96,4 +96,11 @@ Helium is a Chromium-based browser. Cookie extraction uses the same chromium-bac
 | chrome-cookies.ts | ~550 | High (3 OS paths, decryption) |
 | bookmark-classify-llm.ts | 376 | Medium (LLM integration, prompt injection sanitization) |
 | bookmark-media.ts | 305 | Medium (batch download, SSRF URL validation) |
+
+## Known Bugs (Pre-existing, Not Blocking)
+
+- **validateMediaUrl IPv6 loopback**: `src/bookmark-media.ts` `validateMediaUrl()` does not reject IPv6 loopback `[::1]` with brackets. After URL parsing, `hostname` includes the brackets (e.g., `[::1]`), so comparison to `'::1'` fails. Fix: strip brackets from hostname before comparison.
+- **sanitizeExtFromContentType case sensitivity**: `src/bookmark-media.ts` `sanitizeExtFromContentType()` is case-sensitive — uppercase content-types like `IMAGE/JPEG` don't match `'jpeg'` and fall through to URL extension or `.bin`. Fix: call `.toLowerCase()` on the content-type before matching.
+- **sanitizeForPrompt regex limitation**: `src/md-prompts.ts` `sanitizeForPrompt()` uses `/ignore\s+(previous|above|all)\s+instructions?/gi` which cannot match "Ignore all previous instructions" (two keywords between "ignore" and "instructions"). The regex only matches one keyword at a time.
+- **parseResponse whitespace categories**: `src/bookmark-classify-llm.ts` `parseResponse()` checks `.length > 0` before `.trim()`, so whitespace-only category strings like `"  "` pass the filter but become `""` after trim, surviving in the results array.
 | bookmark-classify.ts | ~280 | Low (regex patterns) |
