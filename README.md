@@ -6,9 +6,20 @@ Free and open source. Helium-first. Designed for Mac with Helium browser. Also s
 
 ## Install
 
+**Quick install (recommended):**
 ```bash
+curl -fsSL https://raw.githubusercontent.com/kartikkabadi/fieldtheory-cli-helium/main/install.sh | bash
+```
+
+**Or install with your preferred package manager:**
+```bash
+# pnpm (recommended)
 pnpm install -g fieldtheory-helium
-# or
+
+# bun
+bun install -g fieldtheory-helium
+
+# npm
 npm install -g fieldtheory-helium
 ```
 
