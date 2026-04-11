@@ -287,6 +287,11 @@ function queryCookies(dbPath: string, domain: string, names: string[], browser: 
     throw new Error(`${browser.displayName} Cookies database not found at: ${dbPath}\n` + 'Fix: Make sure the browser is installed and has been opened at least once.\n' + 'If you use a non-default profile, pass --chrome-profile-directory <name>.\n' + 'Or pass cookies manually:  ft sync --cookies <ct0> <auth_token>');
   }
 
+  // SECURITY: This query uses string interpolation rather than parameterized queries because it
+  // executes via the `sqlite3` CLI tool (not a library with prepared statement support). This is
+  // safe because `domain` and `names` are always hardcoded by callers (e.g., '.x.com', ['ct0',
+  // 'auth_token']) — they never originate from user input. Single-quote escaping is applied as a
+  // defense-in-depth measure.
   const safeDomain = domain.replace(/'/g, "''");
   const nameList = names.map((n) => `'${n.replace(/'/g, "''")}'`).join(',');
   const sql = `SELECT name, host_key, hex(encrypted_value) as encrypted_value_hex, value FROM cookies WHERE host_key LIKE '%${safeDomain}' AND name IN (${nameList});`;

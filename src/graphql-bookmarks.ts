@@ -8,6 +8,8 @@ import {exportBookmarksForSyncSeed, updateQuotedTweets, updateBookmarkText} from
 
 const CHROME_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
+// NOTE: This is NOT a secret API key. It is the well-known public bearer token used by all X/Twitter web clients.
+// It is publicly available in Twitter's JavaScript bundles and is required for GraphQL API access.
 const X_PUBLIC_BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 
 const BOOKMARKS_QUERY_ID = 'Z9GWmP0kP2dajyckAaDUBw';

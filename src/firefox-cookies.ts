@@ -66,8 +66,11 @@ function queryFirefoxCookies(dbPath: string, host: string, names: string[]): {na
     throw new Error(`Firefox cookies.sqlite not found at: ${dbPath}\n` + 'Open Firefox and browse to any site first so the cookie DB is created.');
   }
 
-  // Build parameterized-safe SQL. host and names are hardcoded by callers,
-  // but we escape anyway to prevent injection if the API is ever widened.
+  // SECURITY: This query uses string interpolation rather than parameterized queries because it
+  // executes via the `sqlite3` CLI tool (not a library with prepared statement support). This is
+  // safe because `host` and `names` are always hardcoded by callers (e.g., '.x.com', ['ct0',
+  // 'auth_token']) — they never originate from user input. Single-quote escaping is applied as a
+  // defense-in-depth measure.
   const safeHost = host.replace(/'/g, "''");
   const nameList = names.map((n) => `'${n.replace(/'/g, "''")}'`).join(',');
   const sql = `SELECT name, value FROM moz_cookies WHERE host LIKE '%${safeHost}' AND name IN (${nameList});`;
