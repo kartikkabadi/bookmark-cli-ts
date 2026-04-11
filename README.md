@@ -7,7 +7,9 @@ Free and open source. Helium-first. Designed for Mac with Helium browser. Also s
 ## Install
 
 ```bash
-npm install -g fieldtheory
+pnpm install -g fieldtheory-helium
+# or
+npm install -g fieldtheory-helium
 ```
 
 Requires Node.js 20+. Helium recommended for session sync; other browsers supported; OAuth available for all platforms.
