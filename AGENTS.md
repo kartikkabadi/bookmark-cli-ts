@@ -10,13 +10,23 @@ Field Theory CLI is a standalone tool for syncing and querying X/Twitter bookmar
 ## Commands
 
 ```bash
-pnpm run build       # Compile TypeScript to dist/
-pnpm run dev          # Run via tsx directly
-pnpm run test         # Run tests (425 tests, Node built-in test runner)
-pnpm run start        # Run compiled dist/cli.js
+pnpm install           # Install dependencies (or npm install / bun install)
+pnpm run build         # Compile TypeScript to dist/
+pnpm run dev           # Run via tsx directly
+pnpm test              # Run tests (425 tests, Node built-in test runner)
+pnpm run start         # Run compiled dist/cli.js
 ```
 
-*pnpm is the preferred package manager for this project. npm also works.*
+**Install globally:**
+```bash
+# Quick install (curl|bash)
+curl -fsSL https://raw.githubusercontent.com/kartikkabadi/fieldtheory-cli-helium/main/install.sh | bash
+
+# Or via package manager
+pnpm install -g fieldtheory-helium
+bun install -g fieldtheory-helium
+npm install -g fieldtheory-helium
+```
 
 ## Architecture
 
