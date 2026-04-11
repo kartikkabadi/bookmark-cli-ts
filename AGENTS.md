@@ -4,17 +4,19 @@
 
 Field Theory CLI is a standalone tool for syncing and querying X/Twitter bookmarks locally. Built with TypeScript, Commander.js, and SQLite FTS5 (via sql.js-fts5 WASM). All data stored in `~/.ft-bookmarks/`. No native bindings, pure JavaScript/WASM.
 
-**Repository:** `afar1/fieldtheory-cli`
+**Repository:** `kartikkabadi/fieldtheory-cli-helium`
 **Node.js:** >=20 required
 
 ## Commands
 
 ```bash
-npm run build        # Compile TypeScript to dist/
-npm run dev          # Run via tsx directly
-npm run test         # Run tests (148 tests, Node built-in test runner)
-npm run start        # Run compiled dist/cli.js
+pnpm run build       # Compile TypeScript to dist/
+pnpm run dev          # Run via tsx directly
+pnpm run test         # Run tests (425 tests, Node built-in test runner)
+pnpm run start        # Run compiled dist/cli.js
 ```
+
+*pnpm is the preferred package manager for this project. npm also works.*
 
 ## Architecture
 
@@ -70,9 +72,9 @@ Browser cookies -> GraphQL API -> JSONL cache -> SQLite FTS5 index
 
 ## Testing
 
-- 148 tests using Node built-in test runner
+- 425 tests using Node built-in test runner
 - Test isolation: tests set `FT_DATA_DIR` to temp dirs via `withIsolatedDataDir()`
-- Run with: `npm test`
+- Run with: `pnpm test`
 - Chrome cookie tests: mock-based (no real browser needed)
 - DB tests: in-memory SQLite (no real data)
 
@@ -95,7 +97,7 @@ Browser cookies -> GraphQL API -> JSONL cache -> SQLite FTS5 index
 
 - `npm run build` -> `dist/` directory (ES2022, NodeNext modules)
 - Entry point: `bin/ft.mjs` -> `dist/cli.js`
-- Published as npm package `fieldtheory`
+- Published as npm package `fieldtheory-helium`
 
 ## Data Directory Structure
 
