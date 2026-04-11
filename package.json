@@ -4,6 +4,7 @@
   "description": "Field Theory CLI — Helium Edition. Self-custody for your X/Twitter bookmarks. Local sync via Helium browser, full-text search, classification, and terminal dashboards.",
   "packageManager": "pnpm@10.7.0",
   "type": "module",
+  "main": "dist/cli.js",
   "bin": {
     "ft": "bin/ft.mjs",
     "fieldtheory": "bin/ft.mjs"
@@ -13,7 +14,7 @@
     "test": "tsx --test tests/**/*.test.ts",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "prepublishOnly": "pnpm run build",
+    "prepublishOnly": "npm run build",
     "lint": "eslint src/",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
