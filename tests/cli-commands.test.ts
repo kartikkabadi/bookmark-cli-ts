@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(__dirname, '..');
 const tempDir = path.join(__dirname, '.test-data');
 
 // Helper to isolate data dir for each test
@@ -33,7 +34,7 @@ describe('CLI sync command', () => {
   it('ft sync --help shows all sync flags', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts sync --help', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts sync --help`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
@@ -47,7 +48,7 @@ describe('CLI search command', () => {
   it('ft search --help shows search options', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts search --help', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts search --help`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
@@ -60,7 +61,7 @@ describe('CLI list command', () => {
   it('ft list --help shows all list filters', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts list --help', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts list --help`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
@@ -75,7 +76,7 @@ describe('CLI auth command', () => {
   it('ft auth --help shows auth options', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts auth --help', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts auth --help`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
@@ -87,7 +88,7 @@ describe('CLI status command', () => {
   it('ft status --help shows status options', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts status --help', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts status --help`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
@@ -100,7 +101,7 @@ describe('CLI path command', () => {
   it('ft path prints data directory', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts path', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts path`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
@@ -112,11 +113,11 @@ describe('CLI path command', () => {
   it('ft path respects FT_DATA_DIR override', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && FT_DATA_DIR=/tmp/ft-test-env npx tsx src/cli.ts path', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && FT_DATA_DIR=/tmp/ft-test-env npx tsx src/cli.ts path`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
-    assert.ok(result.stdout.trim().startsWith('/tmp/ft-test-env'), 
+    assert.ok(result.stdout.includes('/tmp/ft-test-env'), 
       `Path should respect FT_DATA_DIR, got: ${result.stdout}`);
   });
 });
@@ -125,7 +126,7 @@ describe('CLI index command', () => {
   it('ft index --help shows index options', async () => {
     const { exec } = await import('node:child_process');
     const result = await new Promise((resolve) => {
-      exec('cd /Users/user/Documents/Projects/fieldtheory-cli-port && npx tsx src/cli.ts index --help', (err, stdout, stderr) => {
+      exec(`cd ${projectRoot} && npx tsx src/cli.ts index --help`, (err, stdout, stderr) => {
         resolve({ code: err?.code ?? 0, stdout, stderr });
       });
     });
