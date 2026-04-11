@@ -1,6 +1,6 @@
 {
   "name": "fieldtheory-helium",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Field Theory CLI — Helium Edition. Self-custody for your X/Twitter bookmarks. Local sync via Helium browser, full-text search, classification, and terminal dashboards.",
   "packageManager": "pnpm@10.7.0",
   "type": "module",
