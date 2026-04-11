@@ -26,6 +26,9 @@ Thumbs.db
 # Debug
 npm-debug.log*
 
+# Lockfiles — pnpm-lock.yaml is committed; npm lockfile should not exist
+package-lock.json
+
 # Tool-specific directories
 .factory/
 .sisyphus/
