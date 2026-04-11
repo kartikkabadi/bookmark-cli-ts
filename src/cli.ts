@@ -86,8 +86,6 @@ function friendlyStopReason(raw?: string): string {
   return FRIENDLY_STOP_REASONS[raw] ?? `Sync complete \u2014 ${raw}`;
 }
 
-
-
 // ── Update checker ────────────────────────────────────────────────────────
 
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
@@ -126,7 +124,7 @@ async function checkForUpdate(): Promise<void> {
     if (needsFetch) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch('https://registry.npmjs.org/fieldtheory/latest', {
+      const res = await fetch('https://registry.npmjs.org/fieldtheory-helium/latest', {
         signal: controller.signal,
         headers: {accept: 'application/json'}
       });
@@ -152,7 +150,7 @@ function showCachedUpdateNotice(): void {
     const latest = fs.readFileSync(cacheFile, 'utf-8').trim();
     const local = getLocalVersion();
     if (latest && compareVersions(latest, local) > 0) {
-      console.log(`\n  \u2728 Update available: ${local} \u2192 ${latest}  \u2014  npm update -g fieldtheory`);
+      console.log(`\n  \u2728 Update available: ${local} \u2192 ${latest}  \u2014  npm update -g fieldtheory-helium`);
     }
   } catch {
     /* no cache yet, skip */
@@ -387,7 +385,7 @@ export function buildCli() {
         ensureDataDir,
         createSpinner,
         runWithSpinner
-      })
+      });
     });
 
   // ── search ──────────────────────────────────────────────────────────────
