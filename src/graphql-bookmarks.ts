@@ -808,7 +808,7 @@ export async function syncGaps(options?: {onProgress?: (progress: GapFillProgres
           total: resumedFrom + allFetchIds.length,
           quotedFetched: 0,
           textExpanded: 0,
-          failed: 0,
+          failed: 0
         });
       }
     } catch {
@@ -892,7 +892,7 @@ export async function syncGaps(options?: {onProgress?: (progress: GapFillProgres
     // Checkpoint every 100 fetches and on final save
     if ((i + 1) % 100 === 0 || i === allFetchIds.length - 1) {
       await writeJsonLines(cachePath, records);
-      await writeJson(statePath, { processedIds: Array.from(processedIds), totalIds: [] });
+      await writeJson(statePath, {processedIds: Array.from(processedIds), totalIds: []});
     }
 
     if (i < allFetchIds.length - 1) {

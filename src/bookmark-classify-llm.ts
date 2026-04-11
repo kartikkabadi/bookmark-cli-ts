@@ -75,48 +75,50 @@ interface LlmClassification {
  * @returns Sanitized text safe for insertion into an LLM prompt
  */
 export function sanitizeBookmarkText(text: string): string {
-  return text
-    // ── Delimiter injection (1 & 2) ──────────────────────────────────────
-    // Strip opening and closing tweet_text tags to prevent attackers from
-    // closing the content wrapper prematurely or opening a new one.
-    .replace(/<\/?tweet_text[^>]*>/gi, '')
-    // ── Instruction injection (3) ──────────────────────────────────────
-    // Replace directive patterns that attempt to override system instructions.
-    // These patterns are well-documented injection techniques.
-    // Each pattern requires precise whitespace: "ignore all previous instructions"
-    // (note the space between "previous" and "instructions").
-    // NOTE: <superuser> must be checked BEFORE generic tag stripping below,
-    // because the generic pattern would strip it first, leaving only
-    // </superuser> unmatched.
-    .replace(/<\/?superuser>/gi, '[filtered]')
-    .replace(/ignore\s+all\s+previous\s+instructions\b/gi, '[filtered]')
-    .replace(/ignore\s+all\s+above\s+instructions\b/gi, '[filtered]')
-    .replace(/ignore\s+previous\s+instructions\b/gi, '[filtered]')
-    .replace(/ignore\s+above\s+instructions\b/gi, '[filtered]')
-    .replace(/ignore\s+all\s+instructions\b/gi, '[filtered]')
-    .replace(/ignore\s+instructions\b/gi, '[filtered]')
-    .replace(/you\s+are\s+now\s+[a-zA-Z_\s]+/gi, '[filtered]')
-    .replace(/system\s*:\s*/gi, '[filtered]')
-    .replace(/(?:you\s+are\s+a\s+)?(?:developer\s+)?mode[:\s]/gi, '[filtered]')
-    .replace(/\[system\]/gi, '[filtered]')
-    // Strip any variant with whitespace or attributes (e.g. <tweet_text onclick=...>)
-    // Allow only known-safe inline tags commonly found in tweet text.
-    // Block anything that looks like a structural/tag-based injection.
-    // NOTE: This runs AFTER instruction injection checks above so that specific
-    // injection tag patterns like <superuser> are already handled.
-    .replace(/<[a-zA-Z][^>]*>/g, (match) => {
-      const safe = /^(<\/?(b|i|u|strong|em|a|span|br)\b[^>]*>)$/.test(match);
-      return safe ? match : '';
-    })
-    // ── JSON structural injection (4) ───────────────────────────────────
-    // Prevent corruption of response parsing by neutralizing unbalanced brackets.
-    // Collapse obviously suspicious consecutive brace patterns.
-    .replace(/\{{3,}/g, '{')
-    .replace(/\}{3,}/g, '}')
-    .replace(/\{\{/g, '{')
-    .replace(/\}\}/g, '}')
-    // ── Truncation ───────────────────────────────────────────────────────
-    .slice(0, 300);
+  return (
+    text
+      // ── Delimiter injection (1 & 2) ──────────────────────────────────────
+      // Strip opening and closing tweet_text tags to prevent attackers from
+      // closing the content wrapper prematurely or opening a new one.
+      .replace(/<\/?tweet_text[^>]*>/gi, '')
+      // ── Instruction injection (3) ──────────────────────────────────────
+      // Replace directive patterns that attempt to override system instructions.
+      // These patterns are well-documented injection techniques.
+      // Each pattern requires precise whitespace: "ignore all previous instructions"
+      // (note the space between "previous" and "instructions").
+      // NOTE: <superuser> must be checked BEFORE generic tag stripping below,
+      // because the generic pattern would strip it first, leaving only
+      // </superuser> unmatched.
+      .replace(/<\/?superuser>/gi, '[filtered]')
+      .replace(/ignore\s+all\s+previous\s+instructions\b/gi, '[filtered]')
+      .replace(/ignore\s+all\s+above\s+instructions\b/gi, '[filtered]')
+      .replace(/ignore\s+previous\s+instructions\b/gi, '[filtered]')
+      .replace(/ignore\s+above\s+instructions\b/gi, '[filtered]')
+      .replace(/ignore\s+all\s+instructions\b/gi, '[filtered]')
+      .replace(/ignore\s+instructions\b/gi, '[filtered]')
+      .replace(/you\s+are\s+now\s+[a-zA-Z_\s]+/gi, '[filtered]')
+      .replace(/system\s*:\s*/gi, '[filtered]')
+      .replace(/(?:you\s+are\s+a\s+)?(?:developer\s+)?mode[:\s]/gi, '[filtered]')
+      .replace(/\[system\]/gi, '[filtered]')
+      // Strip any variant with whitespace or attributes (e.g. <tweet_text onclick=...>)
+      // Allow only known-safe inline tags commonly found in tweet text.
+      // Block anything that looks like a structural/tag-based injection.
+      // NOTE: This runs AFTER instruction injection checks above so that specific
+      // injection tag patterns like <superuser> are already handled.
+      .replace(/<[a-zA-Z][^>]*>/g, (match) => {
+        const safe = /^(<\/?(b|i|u|strong|em|a|span|br)\b[^>]*>)$/.test(match);
+        return safe ? match : '';
+      })
+      // ── JSON structural injection (4) ───────────────────────────────────
+      // Prevent corruption of response parsing by neutralizing unbalanced brackets.
+      // Collapse obviously suspicious consecutive brace patterns.
+      .replace(/\{{3,}/g, '{')
+      .replace(/\}{3,}/g, '}')
+      .replace(/\{\{/g, '{')
+      .replace(/\}\}/g, '}')
+      // ── Truncation ───────────────────────────────────────────────────────
+      .slice(0, 300)
+  );
 }
 
 // ── Prompt construction ─────────────────────────────────────────────────

@@ -124,11 +124,7 @@ export function normalizeBookmarkPage(page: BookmarkApiResponse, syncedAt: strin
   });
 }
 
-async function withTokenRefresh<T>(
-  label: string,
-  fn: (accessToken: string) => Promise<{ok: boolean; status: number; detail: string; data?: T}>,
-  loadToken: () => Promise<{access_token: string; refresh_token?: string} | null>
-): Promise<{ok: boolean; status: number; detail: string; data?: T}> {
+async function withTokenRefresh<T>(label: string, fn: (accessToken: string) => Promise<{ok: boolean; status: number; detail: string; data?: T}>, loadToken: () => Promise<{access_token: string; refresh_token?: string} | null>): Promise<{ok: boolean; status: number; detail: string; data?: T}> {
   const token = await loadToken();
   if (!token?.access_token) {
     return {ok: false, status: 0, detail: 'Missing user-context OAuth token. Run: ft auth'};

@@ -21,7 +21,7 @@ const PRIVATE_IP_BLOCKS: Array<{ip: string; mask: number}> = [
   {ip: '10.0.0.0', mask: 8},
   {ip: '172.16.0.0', mask: 12},
   {ip: '192.168.0.0', mask: 16},
-  {ip: '169.254.0.0', mask: 16},
+  {ip: '169.254.0.0', mask: 16}
 ];
 
 function ipToNumber(ip: string): number {
@@ -32,7 +32,7 @@ function ipMatchesBlock(ip: string, blockIp: string, mask: number): boolean {
   const targetNum = ipToNumber(ip);
   const blockNum = ipToNumber(blockIp);
   const bits = 32 - mask;
-  return (targetNum >> bits) === (blockNum >> bits);
+  return targetNum >> bits === blockNum >> bits;
 }
 
 function isPrivateIp(hostname: string): boolean {
