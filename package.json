@@ -1,13 +1,12 @@
 {
-  "name": "fieldtheory-helium",
-  "version": "1.3.3",
-  "description": "Field Theory CLI — Helium Edition. Self-custody for your X/Twitter bookmarks. Local sync via Helium browser, full-text search, classification, and terminal dashboards.",
+  "name": "bookmark-cli-ts",
+  "version": "1.3.4",
+  "description": "Bookmark CLI — TypeScript version. Self-custody for your X/Twitter bookmarks. Local sync via Helium browser, full-text search, classification, and terminal dashboards.",
   "packageManager": "pnpm@10.7.0",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
-    "ft": "bin/ft.mjs",
-    "fieldtheory": "bin/ft.mjs"
+    "ft": "bin/ft.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -32,7 +31,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kartikkabadi/fieldtheory-cli-helium.git"
+    "url": "git+https://github.com/kartikkabadi/bookmark-cli-ts.git"
   },
   "keywords": [
     "bookmarks",
@@ -45,7 +44,8 @@
     "self-custody",
     "cli",
     "helium",
-    "helium-browser"
+    "helium-browser",
+    "bookmark-cli"
   ],
   "dependencies": {
     "commander": "^14.0.3",

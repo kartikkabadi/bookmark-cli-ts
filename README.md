@@ -8,19 +8,19 @@ Free and open source. Helium-first. Designed for Mac with Helium browser. Also s
 
 **Quick install (recommended):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kartikkabadi/fieldtheory-cli-helium/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kartikkabadi/bookmark-cli-ts/main/install.sh | bash
 ```
 
 **Or install with your preferred package manager:**
 ```bash
 # pnpm (recommended)
-pnpm install -g fieldtheory-helium
+pnpm install -g bookmark-cli-ts
 
 # bun
-bun install -g fieldtheory-helium
+bun install -g bookmark-cli-ts
 
 # npm
-npm install -g fieldtheory-helium
+npm install -g bookmark-cli-ts
 ```
 
 Requires Node.js 20+. Helium recommended for session sync; other browsers supported; OAuth available for all platforms.
@@ -148,6 +148,13 @@ All data is stored locally at `~/.ft-bookmarks/`:
   md/                     # markdown knowledge base (ft wiki / ft md)
 ```
 
+## License
+
+MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
+## Repository
+
+[bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)
+
 Override the location with `FT_DATA_DIR`:
 
 ```bash
@@ -193,19 +200,3 @@ Session sync extracts cookies from your browser's local database. Use `ft sync -
 ## License
 
 MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
-
-## Credits
-
-This is a fork of [afar1/fieldtheory-cli](https://github.com/afar1/fieldtheory-cli) by Andrew Farah.
-
-## Star History
-
-_This chart shows the star history of the upstream [afar1/fieldtheory-cli](https://github.com/afar1/fieldtheory-cli), not this fork._
-
-<a href="https://www.star-history.com/?repos=afar1%2Ffieldtheory-cli&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=afar1/fieldtheory-cli&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=afar1/fieldtheory-cli&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=afar1/fieldtheory-cli&type=date&legend=top-left" />
- </picture>
-</a>

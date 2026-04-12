@@ -10,7 +10,7 @@ NC='\033[0m'
 
 echo ""
 echo "${BLUE}╔══════════════════════════════════════════╗${NC}"
-echo "${BLUE}║   Field Theory CLI — Helium Edition      ║${NC}"
+echo "${BLUE}║   Bookmark CLI — TypeScript Edition      ║${NC}"
 echo "${BLUE}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -22,7 +22,7 @@ case "$OS" in
   *)
     echo "${YELLOW}⚠ Unsupported OS: $OS${NC}"
     echo "This script is designed for macOS and Linux."
-    echo "On other platforms, install manually: npm install -g fieldtheory-helium"
+    echo "On other platforms, install manually: npm install -g bookmark-cli-ts"
     ;;
 esac
 
@@ -63,15 +63,15 @@ echo ""
 
 # Install
 if [ "$PKG_MGR" = "npm" ]; then
-    npm install -g fieldtheory-helium
+    npm install -g bookmark-cli-ts
 elif [ "$PKG_MGR" = "pnpm" ]; then
-    pnpm install -g fieldtheory-helium
+    pnpm install -g bookmark-cli-ts
 else
-    bun install -g fieldtheory-helium
+    bun install -g bookmark-cli-ts
 fi
 
 echo ""
-echo "${GREEN}✓ fieldtheory-helium installed!${NC}"
+echo "${GREEN}✓ bookmark-cli-ts installed!${NC}"
 echo ""
 echo "Get started:"
 echo "  ${BLUE}ft --help${NC}           Show all commands"
