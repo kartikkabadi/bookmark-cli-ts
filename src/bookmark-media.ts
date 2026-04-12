@@ -66,7 +66,7 @@ export function validateMediaUrl(urlString: string): MediaUrlValidation {
   }
 
   // Reject loopback
-  if (hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
+  if (hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]' || hostname === '0.0.0.0') {
     return {valid: false, reason: 'Private/network address not allowed: loopback address'};
   }
 
@@ -106,11 +106,12 @@ export interface MediaFetchManifest {
 }
 
 export function sanitizeExtFromContentType(contentType?: string, sourceUrl?: string): string {
-  if (contentType?.includes('jpeg')) return '.jpg';
-  if (contentType?.includes('png')) return '.png';
-  if (contentType?.includes('gif')) return '.gif';
-  if (contentType?.includes('webp')) return '.webp';
-  if (contentType?.includes('mp4')) return '.mp4';
+  const lowerContentType = contentType?.toLowerCase();
+  if (lowerContentType?.includes('jpeg')) return '.jpg';
+  if (lowerContentType?.includes('png')) return '.png';
+  if (lowerContentType?.includes('gif')) return '.gif';
+  if (lowerContentType?.includes('webp')) return '.webp';
+  if (lowerContentType?.includes('mp4')) return '.mp4';
   try {
     const ext = path.extname(new URL(sourceUrl ?? '').pathname);
     if (ext) return ext;

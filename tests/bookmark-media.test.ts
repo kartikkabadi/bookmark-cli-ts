@@ -443,3 +443,26 @@ test('fetchBookmarkMediaBatch records network error as failed entry', async () =
     assert.ok(failedEntry?.reason?.includes('ECONNREFUSED'), 'reason should include error message');
   });
 });
+
+// ── Bug Fix Tests ─────────────────────────────────────────────────────────────
+
+test('validateMediaUrl rejects IPv6 loopback [::1] with brackets', async () => {
+  const result = validateMediaUrl('https://[::1]/image.jpg');
+  assert.equal(result.valid, false, 'IPv6 loopback with brackets should be rejected');
+  assert.ok(result.reason?.includes('loopback'), 'reason should mention loopback');
+});
+
+test('sanitizeExtFromContentType handles uppercase content-type IMAGE/JPEG', () => {
+  const ext = sanitizeExtFromContentType('IMAGE/JPEG', 'https://example.com/image.jpg');
+  assert.equal(ext, '.jpg', 'should map IMAGE/JPEG to .jpg');
+});
+
+test('sanitizeExtFromContentType handles mixed case content-type Image/JpEg', () => {
+  const ext = sanitizeExtFromContentType('Image/JpEg', 'https://example.com/image.jpg');
+  assert.equal(ext, '.jpg', 'should map mixed-case content-type to .jpg');
+});
+
+test('sanitizeExtFromContentType handles lowercase content-type image/jpeg', () => {
+  const ext = sanitizeExtFromContentType('image/jpeg', 'https://example.com/image.jpg');
+  assert.equal(ext, '.jpg', 'should map lowercase content-type to .jpg');
+});
