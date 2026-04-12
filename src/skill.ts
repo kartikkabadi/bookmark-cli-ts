@@ -25,11 +25,11 @@ Search the user's local X/Twitter bookmark archive for content relevant to the c
 
 ## Workflow
 
-1. Look at what the user is working on (conversation, open files, branch name)
-2. Generate 2-3 targeted search queries
-3. Run \`ft search <query>\` for each
-4. Narrow with filters if needed
-5. Summarize what you found — highlight relevant bookmarks, note patterns
+1. **Analyze Context**: Look at the conversation, open files, branch name, or any relevant context
+2. **Formulate Queries**: Generate 3-5 targeted search queries that will surface relevant bookmarks
+3. **Execute Searches**: Run \`ft search <query>\` for each and capture results
+4. **Apply Filters**: Use \`ft list --category\`, \`ft list --domain\`, \`ft list --author\`, \`ft list --after/--before\` to narrow results
+5. **Synthesize**: Summarize what you found, highlight the most relevant bookmarks, and note patterns across multiple results
 
 ## Commands
 
@@ -40,18 +40,39 @@ ft list --domain <dom>         # ai, web-dev, startups, finance, design, devops,
 ft list --author @handle       # By author
 ft list --after/--before DATE  # Date range (YYYY-MM-DD)
 ft stats                       # Collection overview
-ft viz                         # Terminal dashboard
+ft categories                   # View category distribution
+ft domains                      # View domain distribution
+ft viz                         # Terminal dashboard visualization
 ft show <id>                   # Full detail for one bookmark
 \`\`\`
 
-Combine filters: \`ft list --category tool --domain ai --limit 10\`
+**Combine filters for precise results**: \`ft list --category tool --domain ai --author @kentcdodds --limit 20\`
+
+**Use date filtering for temporal queries**: \`ft list --after 2024-01-01 --category research\`
 
 ## Guidelines
 
-- Start broad, narrow with filters
-- Don't dump raw output — summarize and connect findings to the user's current work
-- Cross-reference multiple queries to build a complete picture
-- Look for recurring authors, topic clusters, and connections between bookmarks
+- **Start broad, then narrow**: First get an overview, then drill down with specific filters
+- **Don't dump raw output**: Summarize findings, connect to user's current work, highlight actionable insights
+- **Cross-reference**: Look for recurring authors, topic clusters, and connections between bookmarks
+- **Prioritize relevance**: The user's current task is the filter — show what's most relevant first
+- **Be comprehensive but concise**: Cover the topic thoroughly but don't overwhelm with details
+
+## Example Workflows
+
+### Finding AI Tools Mentioned Recently
+
+1. \`ft search "AI tools"\` → Get broad overview
+2. \`ft list --category tool --domain ai --after 2024-01-01 --limit 15\` → Filter recent AI tools
+3. \`ft stats --top 5 --domain ai\` → See which domains appear most often
+4. Summarize the top 5-7 most relevant tools
+
+### Understanding a Topic Cluster
+
+1. \`ft search "distributed systems"\`
+2. \`ft list --category research --after 2023-01-01 --limit 20\`
+3. Look for recurring authors and cross-connections
+4. Provide a synthesized overview of the topic landscape
 `;
 
 /** Full skill file with YAML frontmatter (for Claude Code commands). */
