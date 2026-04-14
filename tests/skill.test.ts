@@ -6,7 +6,7 @@ describe('skill content', () => {
   it('skillWithFrontmatter includes YAML frontmatter', () => {
     const content = skillWithFrontmatter();
     assert.ok(content.startsWith('---\n'));
-    assert.ok(content.includes('name: fieldtheory'));
+    assert.ok(content.includes('name: bookmark-cli'));
     assert.ok(content.includes('description:'));
     // Frontmatter closes
     assert.ok(content.indexOf('---', 4) > 0);
@@ -15,7 +15,7 @@ describe('skill content', () => {
   it('skillBody has no frontmatter', () => {
     const content = skillBody();
     assert.ok(!content.startsWith('---'));
-    assert.ok(content.startsWith('# Field Theory'));
+    assert.ok(content.startsWith('# Bookmark CLI'));
   });
 
   it('both versions include key commands', () => {

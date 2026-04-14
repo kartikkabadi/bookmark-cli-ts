@@ -1,4 +1,4 @@
-# Field Theory CLI
+# Bookmark CLI TS
 
 Sync and store locally all of your X/Twitter bookmarks. Search, classify, and make them available to Claude Code, Codex, or any agent with shell access.
 
@@ -150,7 +150,7 @@ All data is stored locally at `~/.ft-bookmarks/`:
 
 ## License
 
-MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
+MIT — [https://github.com/kartikkabadi/bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)
 ## Repository
 
 [bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)
@@ -199,4 +199,4 @@ Session sync extracts cookies from your browser's local database. Use `ft sync -
 
 ## License
 
-MIT — [fieldtheory.dev/cli](https://fieldtheory.dev/cli)
+MIT — [https://github.com/kartikkabadi/bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)

@@ -1,10 +1,10 @@
-# Field Theory CLI — Agent Onboarding Guide
+# Bookmark CLI TS — Agent Onboarding Guide
 
 ## Project Overview
 
-Field Theory CLI is a standalone tool for syncing and querying X/Twitter bookmarks locally. Built with TypeScript, Commander.js, and SQLite FTS5 (via sql.js-fts5 WASM). All data stored in `~/.ft-bookmarks/`. No native bindings, pure JavaScript/WASM.
+Bookmark CLI TS is a standalone tool for syncing and querying X/Twitter bookmarks locally. Built with TypeScript, Commander.js, and SQLite FTS5 (via sql.js-fts5 WASM). All data stored in `~/.ft-bookmarks/`. No native bindings, pure JavaScript/WASM.
 
-**Repository:** `kartikkabadi/fieldtheory-cli-helium`
+**Repository:** `https://github.com/kartikkabadi/bookmark-cli-ts`
 **Node.js:** >=20 required
 
 ## Commands
@@ -20,12 +20,12 @@ pnpm run start         # Run compiled dist/cli.js
 **Install globally:**
 ```bash
 # Quick install (curl|bash)
-curl -fsSL https://raw.githubusercontent.com/kartikkabadi/fieldtheory-cli-helium/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kartikkabadi/bookmark-cli-ts/main/install.sh | bash
 
 # Or via package manager
-pnpm install -g fieldtheory-helium
-bun install -g fieldtheory-helium
-npm install -g fieldtheory-helium
+pnpm install -g bookmark-cli-ts
+bun install -g bookmark-cli-ts
+npm install -g bookmark-cli-ts
 ```
 
 ## Architecture
@@ -59,7 +59,7 @@ Single CLI application. Key source files (all 27 files in `src/`):
 | `src/engine.ts` | LLM engine detection (claude/codex CLI) |
 | `src/prompt.ts` | Interactive CLI prompt with spinner |
 | `src/preferences.ts` | User preferences (model engine choice) |
-| `src/skill.ts` | `/fieldtheory` skill installer for Claude Code/Codex |
+| `src/skill.ts` | `/bookmark-cli` skill installer for Claude Code/Codex |
 
 ### Data flow
 
@@ -107,7 +107,7 @@ Browser cookies -> GraphQL API -> JSONL cache -> SQLite FTS5 index
 
 - `npm run build` -> `dist/` directory (ES2022, NodeNext modules)
 - Entry point: `bin/ft.mjs` -> `dist/cli.js`
-- Published as npm package `fieldtheory-helium`
+- Published as npm package `bookmark-cli-ts`
 
 ## Data Directory Structure
 

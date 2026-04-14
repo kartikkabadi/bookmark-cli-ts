@@ -121,23 +121,7 @@ async function checkForUpdate(): Promise<void> {
       /* file doesn't exist, fetch */
     }
 
-    if (needsFetch) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch('https://registry.npmjs.org/fieldtheory-helium/latest', {
-        signal: controller.signal,
-        headers: {accept: 'application/json'}
-      });
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        if (data?.version) fs.writeFileSync(cacheFile, data.version);
-      }
-    }
-
-    // Always show notice from cache
-    showCachedUpdateNotice();
+    // Version check disabled - using GitHub releases instead
   } catch {
     /* network error, offline, etc — silently skip */
   }
@@ -145,16 +129,7 @@ async function checkForUpdate(): Promise<void> {
 
 /** Sync version — reads cached check result. Used after help output where we can't await. */
 function showCachedUpdateNotice(): void {
-  try {
-    const cacheFile = path.join(dataDir(), '.update-check');
-    const latest = fs.readFileSync(cacheFile, 'utf-8').trim();
-    const local = getLocalVersion();
-    if (latest && compareVersions(latest, local) > 0) {
-      console.log(`\n  \u2728 Update available: ${local} \u2192 ${latest}  \u2014  npm update -g fieldtheory-helium`);
-    }
-  } catch {
-    /* no cache yet, skip */
-  }
+  // Version check disabled - using GitHub releases instead
 }
 
 // ── What's new ────────────────────────────────────────────────────────────
@@ -204,8 +179,8 @@ function logo(): string {
   const v = getLocalVersion();
   const vLabel = `v${v}`;
   const innerW = 33;
-  const line1 = 'F i e l d   T h e o r y';
-  const line2 = 'fieldtheory.dev/cli';
+  const line1 = 'B o o k m a r k   C L I';
+  const line2 = 'github.com/kartikkabadi/bookmark-cli-ts';
   const pad1 = innerW - line1.length - 3;
   const pad2 = innerW - line2.length - vLabel.length - 4;
   return `
@@ -923,31 +898,23 @@ export function buildCli() {
 
   // ── skill ──────────────────────────────────────────────────────────────
 
-  const skill = program.command('skill').description('Install the /fieldtheory skill for AI coding agents');
+  const skill = program.command('skill').description('Install the /bookmark-cli skill for AI coding agents');
 
   skill
     .command('install')
-    .description('Install skill for detected agents (Claude Code, Codex)')
-    .action(
-      safe(async () => {
-        const results = await installSkill();
-        if (results.length === 0) {
-          console.log('  No agents detected. Use `ft skill show` to copy manually.');
-          return;
-        }
-        const labels: Record<string, string> = {
-          installed: 'Installed',
-          updated: 'Updated',
-          'up-to-date': 'Already up to date'
-        };
-        for (const r of results) {
-          console.log(`  ${labels[r.action] ?? r.action} for ${r.agent}: ${r.path}`);
-        }
-        if (results.some((r) => r.action === 'installed' || r.action === 'updated')) {
-          console.log(`\n  Try: /fieldtheory in Claude Code, or ask about your bookmarks in Codex.`);
-        }
-      })
-    );
+    .description('Install the skill for Claude Code and Codex')
+    .action(async () => {
+      const results = await installSkill();
+      console.log();
+      results.forEach((r) => {
+        const icon = r.action === 'installed' ? '\u2713' : r.action === 'updated' ? '\u2191' : r.action === 'up-to-date' ? '\u2248' : '\u2717';
+        const action = r.action === 'up-to-date' ? 'up to date' : r.action;
+        console.log(`  ${icon} ${r.agent}: ${action} (${r.path})`);
+      });
+      if (results.some((r) => r.action === 'installed' || r.action === 'updated')) {
+        console.log(`\n  Try: /bookmark-cli in Claude Code, or ask about your bookmarks in Codex.`);
+      }
+    });
 
   skill
     .command('show')

@@ -6,7 +6,7 @@ import {promptText} from './prompt.js';
 // ── Skill content ────────────────────────────────────────────────────────────
 
 const FRONTMATTER = `---
-name: fieldtheory
+name: bookmark-cli
 description: Search the user's local X/Twitter bookmarks for content relevant to their current work. Trigger when the user mentions bookmarks, saved tweets, wants to find something they saved, or asks questions their bookmark history could answer.
 ---`;
 
@@ -99,12 +99,12 @@ function detectAgents(): Agent[] {
     {
       name: 'Claude Code',
       detected: fs.existsSync(path.join(home, '.claude')),
-      installPath: path.join(home, '.claude', 'commands', 'fieldtheory.md')
+      installPath: path.join(home, '.claude', 'commands', 'bookmark-cli.md')
     },
     {
       name: 'Codex',
       detected: fs.existsSync(path.join(home, '.codex')),
-      installPath: path.join(home, '.codex', 'instructions', 'fieldtheory.md')
+      installPath: path.join(home, '.codex', 'instructions', 'bookmark-cli.md')
     }
   ];
 }
@@ -127,7 +127,7 @@ export async function installSkill(): Promise<SkillResult[]> {
     targets.push({
       name: 'Claude Code',
       detected: false,
-      installPath: path.join(home, '.claude', 'commands', 'fieldtheory.md')
+      installPath: path.join(home, '.claude', 'commands', 'bookmark-cli.md')
     });
   }
 
