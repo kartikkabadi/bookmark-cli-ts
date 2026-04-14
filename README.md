@@ -6,21 +6,9 @@ Free and open source. Helium-first. Designed for Mac with Helium browser. Also s
 
 ## Install
 
-**Quick install (recommended):**
+**Quick install:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kartikkabadi/bookmark-cli-ts/main/install.sh | bash
-```
-
-**Or install with your preferred package manager:**
-```bash
-# pnpm (recommended)
-pnpm install -g bookmark-cli-ts
-
-# bun
-bun install -g bookmark-cli-ts
-
-# npm
-npm install -g bookmark-cli-ts
 ```
 
 Requires Node.js 20+. Helium recommended for session sync; other browsers supported; OAuth available for all platforms.
@@ -94,7 +82,7 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 
 | Command | Description |
 |---------|-------------|
-| `ft skill install` | Install `/fieldtheory` skill for Claude Code and Codex |
+| `ft skill install` | Install `/bookmark-cli` skill for Claude Code and Codex |
 | `ft skill show` | Print skill content to stdout |
 | `ft skill uninstall` | Remove installed skill files |
 
@@ -109,7 +97,7 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 
 ## Agent integration
 
-Install the `/fieldtheory` skill so your agent automatically searches your bookmarks when relevant:
+Install the `/bookmark-cli` skill so your agent automatically searches your bookmarks when relevant:
 
 ```bash
 ft skill install     # Auto-detects Claude Code and Codex
@@ -121,7 +109,7 @@ Then ask your agent:
 
 > "I bookmarked a number of new open source AI memory tools. Pick the best one and figure out how to incorporate it in this repo."
 
-> "Every day please sync any new X bookmarks using the Field Theory CLI."
+> "Every day please sync any new X bookmarks using the Bookmark CLI."
 
 Works with Claude Code, Codex, or any agent with shell access.
 
@@ -167,7 +155,7 @@ To remove all data: `rm -rf ~/.ft-bookmarks`
 
 | Category | What it catches |
 |----------|----------------|
-| **tool** | GitHub repos, CLI tools, npm packages, open-source projects |
+| **tool** | GitHub repos, CLI tools, open-source projects |
 | **security** | CVEs, vulnerabilities, exploits, supply chain |
 | **technique** | Tutorials, demos, code patterns, "how I built X" |
 | **launch** | Product launches, announcements, "just shipped" |

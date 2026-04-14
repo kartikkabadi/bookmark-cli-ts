@@ -1,14 +1,14 @@
 # CLAUDE.md
 
-This is the Field Theory CLI — a standalone tool for syncing and querying X/Twitter bookmarks locally.
+This is the Bookmark CLI TS — a standalone tool for syncing and querying X/Twitter bookmarks locally.
 
 ## Commands
 
 ```bash
-npm run build        # Compile TypeScript to dist/
-npm run dev          # Run via tsx directly
-npm run test         # Run tests
-npm run start        # Run compiled dist/cli.js
+pnpm run build        # Compile TypeScript to dist/
+pnpm run dev          # Run via tsx directly
+pnpm test             # Run tests
+pnpm run start        # Run compiled dist/cli.js
 ```
 
 ## Architecture

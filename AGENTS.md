@@ -19,13 +19,7 @@ pnpm run start         # Run compiled dist/cli.js
 
 **Install globally:**
 ```bash
-# Quick install (curl|bash)
 curl -fsSL https://raw.githubusercontent.com/kartikkabadi/bookmark-cli-ts/main/install.sh | bash
-
-# Or via package manager
-pnpm install -g bookmark-cli-ts
-bun install -g bookmark-cli-ts
-npm install -g bookmark-cli-ts
 ```
 
 ## Architecture
@@ -105,9 +99,9 @@ Browser cookies -> GraphQL API -> JSONL cache -> SQLite FTS5 index
 
 ## Build Output
 
-- `npm run build` -> `dist/` directory (ES2022, NodeNext modules)
+- `pnpm run build` -> `dist/` directory (ES2022, NodeNext modules)
 - Entry point: `bin/ft.mjs` -> `dist/cli.js`
-- Published as npm package `bookmark-cli-ts`
+- Binary distribution via GitHub releases
 
 ## Data Directory Structure
 

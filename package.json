@@ -13,18 +13,11 @@
     "test": "tsx --test tests/**/*.test.ts",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "prepublishOnly": "npm run build",
     "lint": "eslint src/",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "typecheck": "tsc --noEmit"
   },
-  "files": [
-    "bin/",
-    "dist/",
-    "LICENSE",
-    "README.md"
-  ],
   "engines": {
     "node": ">=20"
   },
