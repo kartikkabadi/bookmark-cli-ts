@@ -7,7 +7,7 @@ import { rm } from 'node:fs/promises';
 import { withIsolatedDataDir } from './helpers.js';
 import { writeJson } from '../src/fs.js';
 import { bookmarkMediaManifestPath } from '../src/paths.js';
-import { validateMediaUrl, sanitizeExtFromContentType } from '../src/bookmark-media.js';
+import { validateMediaUrl, validateMediaUrlForFetch, sanitizeExtFromContentType } from '../src/bookmark-media.js';
 
 // ── URL Validation Tests ─────────────────────────────────────────────────
 
@@ -96,6 +96,21 @@ test('validateMediaUrl accepts arbitrary valid HTTPS URLs', async () => {
     const result = validateMediaUrl('https://example.com/image.png');
     assert.equal(result.valid, true);
   });
+});
+
+test('validateMediaUrlForFetch rejects hostname resolving to private IP', async () => {
+  const result = await validateMediaUrlForFetch('https://attacker.example/image.jpg', async () => [
+    {address: '169.254.169.254', family: 4}
+  ]);
+  assert.equal(result.valid, false);
+  assert.match(result.reason ?? '', /resolves to private/i);
+});
+
+test('validateMediaUrlForFetch accepts hostname resolving to public IP', async () => {
+  const result = await validateMediaUrlForFetch('https://cdn.example/image.jpg', async () => [
+    {address: '93.184.216.34', family: 4}
+  ]);
+  assert.equal(result.valid, true);
 });
 
 // ── Content-Type to Extension Mapping Tests ───────────────────────────────
@@ -339,7 +354,7 @@ test('fetchBookmarkMediaBatch records HTTP 404 as failed entry', async () => {
       } as unknown as Response;
     };
 
-    const manifest = await fetchBookmarkMediaBatch({ limit: 10 });
+    const manifest = await fetchBookmarkMediaBatch({ limit: 10, lookup: async () => [{address: '93.184.216.34', family: 4}] });
 
     globalThis.fetch = originalFetch;
 
@@ -369,7 +384,7 @@ test('fetchBookmarkMediaBatch records HTTP 500 as failed entry', async () => {
       } as unknown as Response;
     };
 
-    const manifest = await fetchBookmarkMediaBatch({ limit: 10 });
+    const manifest = await fetchBookmarkMediaBatch({ limit: 10, lookup: async () => [{address: '93.184.216.34', family: 4}] });
 
     globalThis.fetch = originalFetch;
 
@@ -408,7 +423,7 @@ test('fetchBookmarkMediaBatch records content-length exceeding maxBytes as skipp
       } as unknown as Response;
     };
 
-    const manifest = await fetchBookmarkMediaBatch({ limit: 10, maxBytes: 1024 * 1024 });
+    const manifest = await fetchBookmarkMediaBatch({ limit: 10, maxBytes: 1024 * 1024, lookup: async () => [{address: '93.184.216.34', family: 4}] });
 
     globalThis.fetch = originalFetch;
 
@@ -433,7 +448,7 @@ test('fetchBookmarkMediaBatch records network error as failed entry', async () =
       throw new Error('ECONNREFUSED');
     };
 
-    const manifest = await fetchBookmarkMediaBatch({ limit: 10 });
+    const manifest = await fetchBookmarkMediaBatch({ limit: 10, lookup: async () => [{address: '93.184.216.34', family: 4}] });
 
     globalThis.fetch = originalFetch;
 
@@ -441,6 +456,35 @@ test('fetchBookmarkMediaBatch records network error as failed entry', async () =
     const failedEntry = manifest.entries.find(e => e.sourceUrl === 'https://example.com/image.jpg');
     assert.equal(failedEntry?.status, 'failed');
     assert.ok(failedEntry?.reason?.includes('ECONNREFUSED'), 'reason should include error message');
+  });
+});
+
+test('fetchBookmarkMediaBatch blocks DNS-resolved private IPs before fetch', async () => {
+  await withIsolatedDataDir(async (tmpDir) => {
+    const { fetchBookmarkMediaBatch } = await import('../src/bookmark-media.js');
+
+    const bookmarksPath = path.join(tmpDir, 'bookmarks.jsonl');
+    await fs.promises.writeFile(bookmarksPath,
+      JSON.stringify({ id: '5', tweetId: 't5', url: 'https://x.com/u/s/5', text: 't', syncedAt: new Date().toISOString(), media: ['https://rebind.example/image.jpg'] }) + '\n'
+    );
+
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      throw new Error('fetch should not be called');
+    };
+
+    const manifest = await fetchBookmarkMediaBatch({
+      limit: 10,
+      lookup: async () => [{address: '10.0.0.5', family: 4}]
+    });
+
+    globalThis.fetch = originalFetch;
+
+    assert.equal(fetchCalled, false, 'fetch should not run for DNS-resolved private IP');
+    assert.equal(manifest.failed, 1);
+    assert.match(manifest.entries[0]?.reason ?? '', /resolves to private/i);
   });
 });
 
