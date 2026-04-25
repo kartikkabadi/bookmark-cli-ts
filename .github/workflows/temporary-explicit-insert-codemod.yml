@@ -1,0 +1,126 @@
+name: Temporary explicit bookmark insert codemod
+
+on:
+  push:
+    branches:
+      - fix/explicit-bookmark-insert-columns
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: ${{ !contains(github.event.head_commit.message, 'Apply explicit bookmark insert codemod') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/explicit-bookmark-insert-columns
+          fetch-depth: 0
+
+      - name: Apply codemod
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const dbPath = 'src/bookmarks-db.ts';
+          let src = fs.readFileSync(dbPath, 'utf8');
+
+          const oldInsert = "db.run(`INSERT OR REPLACE INTO bookmarks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [r.id, r.tweetId, r.url, r.text, r.authorHandle ?? null, r.authorName ?? null, r.authorProfileImageUrl ?? null, r.postedAt ?? null, r.bookmarkedAt ?? null, r.syncedAt, r.conversationId ?? null, r.inReplyToStatusId ?? null, r.quotedStatusId ?? null, r.language ?? null, r.engagement?.likeCount ?? null, r.engagement?.repostCount ?? null, r.engagement?.replyCount ?? null, r.engagement?.quoteCount ?? null, r.engagement?.bookmarkCount ?? null, r.engagement?.viewCount ?? null, r.media?.length ?? 0, r.links?.length ?? 0, r.links?.length ? JSON.stringify(r.links) : null, r.tags?.length ? JSON.stringify(r.tags) : null, r.ingestedVia ?? null, preserved?.categories ?? null, preserved?.primaryCategory ?? 'unclassified', preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null), preserved?.domains ?? null, preserved?.primaryDomain ?? null, r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null)]);";
+
+          const newInsert = `db.run(\`INSERT OR REPLACE INTO bookmarks (\
+    id,\
+    tweet_id,\
+    url,\
+    text,\
+    author_handle,\
+    author_name,\
+    author_profile_image_url,\
+    posted_at,\
+    bookmarked_at,\
+    synced_at,\
+    conversation_id,\
+    in_reply_to_status_id,\
+    quoted_status_id,\
+    language,\
+    like_count,\
+    repost_count,\
+    reply_count,\
+    quote_count,\
+    bookmark_count,\
+    view_count,\
+    media_count,\
+    link_count,\
+    links_json,\
+    tags_json,\
+    ingested_via,\
+    categories,\
+    primary_category,\
+    github_urls,\
+    domains,\
+    primary_domain,\
+    quoted_tweet_json\
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)\`, [\
+    r.id,\
+    r.tweetId,\
+    r.url,\
+    r.text,\
+    r.authorHandle ?? null,\
+    r.authorName ?? null,\
+    r.authorProfileImageUrl ?? null,\
+    r.postedAt ?? null,\
+    r.bookmarkedAt ?? null,\
+    r.syncedAt,\
+    r.conversationId ?? null,\
+    r.inReplyToStatusId ?? null,\
+    r.quotedStatusId ?? null,\
+    r.language ?? null,\
+    r.engagement?.likeCount ?? null,\
+    r.engagement?.repostCount ?? null,\
+    r.engagement?.replyCount ?? null,\
+    r.engagement?.quoteCount ?? null,\
+    r.engagement?.bookmarkCount ?? null,\
+    r.engagement?.viewCount ?? null,\
+    r.media?.length ?? 0,\
+    r.links?.length ?? 0,\
+    r.links?.length ? JSON.stringify(r.links) : null,\
+    r.tags?.length ? JSON.stringify(r.tags) : null,\
+    r.ingestedVia ?? null,\
+    preserved?.categories ?? null,\
+    preserved?.primaryCategory ?? 'unclassified',\
+    preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null),\
+    preserved?.domains ?? null,\
+    preserved?.primaryDomain ?? null,\
+    r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null)\
+  ]);`;
+
+          if (!src.includes(oldInsert)) {
+            throw new Error('Could not find compact positional bookmark insert to replace');
+          }
+          src = src.replace(oldInsert, newInsert);
+          fs.writeFileSync(dbPath, src);
+
+          const testPath = 'tests/bookmarks-db.test.ts';
+          let testSrc = fs.readFileSync(testPath, 'utf8');
+          if (!testSrc.includes('buildIndex tolerates additive bookmark table columns')) {
+            const regression = `\n\ntest('buildIndex tolerates additive bookmark table columns', async () => {\n  await withIsolatedDataDir(async (dir) => {\n    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\\n') + '\\n';\n    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);\n\n    await buildIndex();\n\n    const dbPath = twitterBookmarksIndexPath();\n    const db = await openDb(dbPath);\n    try {\n      db.run('ALTER TABLE bookmarks ADD COLUMN future_column TEXT');\n      saveDb(db, dbPath);\n    } finally {\n      db.close();\n    }\n\n    const result = await buildIndex();\n    assert.equal(result.recordCount, 3);\n\n    const bookmark = await getBookmarkById('1');\n    assert.ok(bookmark);\n    assert.equal(bookmark.text, 'Machine learning is transforming healthcare');\n  });\n});\n`;
+            testSrc += regression;
+            fs.writeFileSync(testPath, testSrc);
+          }
+
+          fs.rmSync('.github/workflows/temporary-explicit-insert-codemod.yml', {force: true});
+          NODE
+
+      - name: Commit codemod result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/bookmarks-db.ts tests/bookmarks-db.test.ts .github/workflows/temporary-explicit-insert-codemod.yml
+          git commit -m "Apply explicit bookmark insert codemod"
+          git push origin HEAD:fix/explicit-bookmark-insert-columns
