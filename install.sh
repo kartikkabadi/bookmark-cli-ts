@@ -1,128 +1,155 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo ""
-echo "${BLUE}╔══════════════════════════════════════════╗${NC}"
-echo "${BLUE}║   Bookmark CLI TS                         ║${NC}"
-echo "${BLUE}╚══════════════════════════════════════════╝${NC}"
-echo ""
+REPO="kartikkabadi/bookmark-cli-ts"
+APP_NAME="bookmark-cli-ts"
+BIN_NAME="ft"
+APP_DIR="${BOOKMARK_CLI_APP_DIR:-$HOME/.local/share/bookmark-cli-ts}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
-# Detect OS
+say() { printf '%b\n' "$1"; }
+fail() { say "${RED}✗ $1${NC}"; exit 1; }
+
+say ""
+say "${BLUE}╔══════════════════════════════════════════╗${NC}"
+say "${BLUE}║   Bookmark CLI TS                       ║${NC}"
+say "${BLUE}╚══════════════════════════════════════════╝${NC}"
+say ""
+
 OS="$(uname -s 2>/dev/null || echo unknown)"
 case "$OS" in
-  Darwin) echo "${GREEN}✓ macOS detected${NC}" ;;
-  Linux)  echo "${GREEN}✓ Linux detected${NC}" ;;
-  *)
-    echo "${YELLOW}⚠ Unsupported OS: $OS${NC}"
-    echo "This script is designed for macOS and Linux."
-    exit 1
-    ;;
+  Darwin) PLATFORM="macos"; say "${GREEN}✓ macOS detected${NC}" ;;
+  Linux) PLATFORM="linux"; say "${GREEN}✓ Linux detected${NC}" ;;
+  *) fail "Unsupported OS: $OS. This installer supports macOS and Linux." ;;
 esac
 
-# Detect architecture
 ARCH="$(uname -m 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64|amd64) ARCH="x64" ;;
   arm64|aarch64) ARCH="arm64" ;;
-  *)
-    echo "${YELLOW}⚠ Unsupported architecture: $ARCH${NC}"
-    exit 1
-    ;;
+  *) fail "Unsupported architecture: $ARCH" ;;
 esac
+say "${GREEN}✓ Architecture: $ARCH${NC}"
 
-echo "${GREEN}✓ Architecture: $ARCH${NC}"
-
-# Check Node.js
-if ! command -v node &> /dev/null; then
-    echo ""
-    echo "${RED}✗ Node.js is required but not installed.${NC}"
-    echo ""
-    echo "Install Node.js 20+ from https://nodejs.org"
-    echo ""
-    echo "  macOS (Homebrew):   brew install node"
-    echo "  Linux (nvm):        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash && nvm install 20"
-    echo ""
-    exit 1
+if ! command -v node >/dev/null 2>&1; then
+  say ""
+  fail "Node.js 20+ is required. Install from https://nodejs.org or use Homebrew/nvm."
 fi
 
-NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
-if [ "$NODE_VERSION" -lt 20 ]; then
-    echo ""
-    echo "${RED}✗ Node.js 20+ is required. Current: $(node -v)${NC}"
-    echo "Upgrade at https://nodejs.org"
-    exit 1
+NODE_MAJOR="$(node -v | sed 's/v//' | cut -d. -f1)"
+if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
+  fail "Node.js 20+ is required. Current: $(node -v)"
+fi
+say "${GREEN}✓ Node.js $(node -v) detected${NC}"
+
+mkdir -p "$INSTALL_DIR" "$APP_DIR"
+
+if ! printf '%s' "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+  say "${YELLOW}⚠ $INSTALL_DIR is not on PATH.${NC}"
+  say "  Add this to your shell profile: export PATH=\"$INSTALL_DIR:\$PATH\""
+  say ""
 fi
 
-echo "${GREEN}✓ Node.js $(node -v) detected${NC}"
-echo ""
+install_release_wrapper() {
+  local target="$1"
+  cat > "$INSTALL_DIR/$BIN_NAME" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "$target" "\$@"
+EOF
+  chmod +x "$INSTALL_DIR/$BIN_NAME"
+}
 
-# Get latest release from GitHub
-REPO="kartikkabadi/bookmark-cli-ts"
-echo "${BLUE}Fetching latest release from GitHub...${NC}"
-LATEST_RELEASE=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+install_node_wrapper() {
+  local entrypoint="$1"
+  cat > "$INSTALL_DIR/$BIN_NAME" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec node "$entrypoint" "\$@"
+EOF
+  chmod +x "$INSTALL_DIR/$BIN_NAME"
+}
 
-if [ -z "$LATEST_RELEASE" ]; then
-    echo "${RED}✗ Failed to fetch latest release${NC}"
-    exit 1
+install_from_release() {
+  say "${BLUE}Fetching latest release from GitHub...${NC}"
+  local latest_release
+  latest_release="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)"
+
+  if [ -z "$latest_release" ]; then
+    return 1
+  fi
+
+  say "${GREEN}✓ Latest release: $latest_release${NC}"
+  local download_url="https://github.com/${REPO}/releases/download/${latest_release}/${APP_NAME}-${PLATFORM}-${ARCH}.tar.gz"
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  say "${BLUE}Downloading: $download_url${NC}"
+  if ! curl -fsSL "$download_url" -o "$temp_dir/${APP_NAME}.tar.gz"; then
+    rm -rf "$temp_dir"
+    return 1
+  fi
+
+  rm -rf "$APP_DIR/release"
+  mkdir -p "$APP_DIR/release"
+  tar -xzf "$temp_dir/${APP_NAME}.tar.gz" -C "$APP_DIR/release"
+  rm -rf "$temp_dir"
+
+  if [ -x "$APP_DIR/release/bookmark-cli-ts" ]; then
+    install_release_wrapper "$APP_DIR/release/bookmark-cli-ts"
+  elif [ -f "$APP_DIR/release/bin/ft.mjs" ]; then
+    install_node_wrapper "$APP_DIR/release/bin/ft.mjs"
+  else
+    return 1
+  fi
+}
+
+install_from_source() {
+  say "${YELLOW}Release asset unavailable. Falling back to source install.${NC}"
+
+  if ! command -v pnpm >/dev/null 2>&1; then
+    if command -v corepack >/dev/null 2>&1; then
+      corepack enable pnpm >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if ! command -v pnpm >/dev/null 2>&1; then
+    fail "pnpm is required for source install. Install it with: corepack enable pnpm"
+  fi
+
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  say "${BLUE}Downloading source archive...${NC}"
+  curl -fsSL "https://github.com/${REPO}/archive/refs/heads/main.tar.gz" -o "$temp_dir/source.tar.gz"
+  tar -xzf "$temp_dir/source.tar.gz" -C "$temp_dir"
+
+  rm -rf "$APP_DIR/source"
+  mv "$temp_dir/bookmark-cli-ts-main" "$APP_DIR/source"
+  rm -rf "$temp_dir"
+
+  say "${BLUE}Installing dependencies and building...${NC}"
+  (cd "$APP_DIR/source" && pnpm install --frozen-lockfile && pnpm run build)
+  install_node_wrapper "$APP_DIR/source/bin/ft.mjs"
+}
+
+if ! install_from_release; then
+  install_from_source
 fi
 
-echo "${GREEN}✓ Latest release: $LATEST_RELEASE${NC}"
-echo ""
-
-# Download release
-PLATFORM=""
-if [ "$OS" = "Darwin" ]; then
-    PLATFORM="macos"
-elif [ "$OS" = "Linux" ]; then
-    PLATFORM="linux"
-fi
-
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST_RELEASE}/bookmark-cli-ts-${PLATFORM}-${ARCH}.tar.gz"
-INSTALL_DIR="/usr/local/bin"
-
-echo "${BLUE}Downloading from: $DOWNLOAD_URL${NC}"
-echo ""
-
-# Create temp directory
-TEMP_DIR=$(mktemp -d)
-cd "$TEMP_DIR"
-
-# Download
-if ! curl -fsSL "$DOWNLOAD_URL" -o bookmark-cli-ts.tar.gz; then
-    echo "${RED}✗ Download failed${NC}"
-    rm -rf "$TEMP_DIR"
-    exit 1
-fi
-
-# Extract
-echo "${BLUE}Extracting...${NC}"
-tar -xzf bookmark-cli-ts.tar.gz
-
-# Install
-echo "${BLUE}Installing to $INSTALL_DIR${NC}"
-if [ ! -d "$INSTALL_DIR" ]; then
-    sudo mkdir -p "$INSTALL_DIR"
-fi
-
-sudo mv bookmark-cli-ts "$INSTALL_DIR/ft"
-sudo chmod +x "$INSTALL_DIR/ft"
-
-# Cleanup
-cd /
-rm -rf "$TEMP_DIR"
-
-echo ""
-echo "${GREEN}✓ bookmark-cli-ts installed successfully!${NC}"
-echo ""
-echo "Get started:"
-echo "  ${BLUE}ft --help${NC}           Show all commands"
-echo "  ${BLUE}ft sync${NC}             Sync your X/Twitter bookmarks"
-echo "  ${BLUE}ft sync --browser helium${NC}  Sync with Helium browser"
-echo ""
+say ""
+say "${GREEN}✓ bookmark-cli-ts installed successfully!${NC}"
+say ""
+say "Binary: ${BLUE}$INSTALL_DIR/$BIN_NAME${NC}"
+say "Data:   ${BLUE}~/.ft-bookmarks${NC}"
+say ""
+say "Get started:"
+say "  ${BLUE}ft --help${NC}"
+say "  ${BLUE}ft sync --browser helium${NC}"
+say "  ${BLUE}ft search \"query\"${NC}"
+say ""

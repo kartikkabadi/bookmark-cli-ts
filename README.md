@@ -1,28 +1,31 @@
 # Bookmark CLI TS
 
-Sync and store locally all of your X/Twitter bookmarks. Search, classify, and make them available to Claude Code, Codex, or any agent with shell access.
+Sync and store your X/Twitter bookmarks locally. Search, classify, visualize, and expose them to Claude Code, Codex, or any agent with shell access.
 
-Free and open source. Helium-first. Designed for Mac with Helium browser. Also supports Chrome, Firefox, Brave, and Arc browsers.
+Free and open source. Helium-first. Designed for macOS with Helium browser. Also supports Chrome, Firefox, Brave, Arc, and OAuth API sync.
 
 ## Install
 
 **Quick install:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kartikkabadi/bookmark-cli-ts/main/install.sh | bash
 ```
 
-Requires Node.js 20+. Helium recommended for session sync; other browsers supported; OAuth available for all platforms.
+The installer uses GitHub release assets when available and falls back to a source build if a release asset is missing. It installs `ft` into `~/.local/bin` by default. Override with `INSTALL_DIR=/path/to/bin` if needed.
+
+Requires Node.js 20+. Helium is recommended for session sync; other browsers are supported; OAuth is available for cross-platform API sync.
 
 ## Quick start
 
 ```bash
-# 1. Sync your bookmarks (needs Helium logged into X)
-ft sync
+# 1. Sync your bookmarks. Helium must be logged into X.
+ft sync --browser helium
 
-# 2. Search them
+# 2. Search them.
 ft search "distributed systems"
 
-# 3. Explore
+# 3. Explore.
 ft viz
 ft categories
 ft stats
@@ -36,14 +39,15 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 
 | Command | Description |
 |---------|-------------|
-| `ft sync` | Download and sync bookmarks (no API required) |
-| `ft sync --rebuild` | Full history crawl (not just incremental) |
+| `ft sync` | Download and sync bookmarks with browser-session GraphQL |
+| `ft sync --browser helium` | Sync with Helium browser explicitly |
+| `ft sync --rebuild` | Full history crawl, not just incremental sync |
 | `ft sync --gaps` | Backfill missing quoted tweets and expand truncated articles |
 | `ft sync --continue` | Resume a previous sync that was interrupted or hit the page limit |
 | `ft sync --yes` | Skip confirmation prompts |
 | `ft sync --classify` | Sync then classify new bookmarks with LLM |
-| `ft sync --api` | Sync via OAuth API (cross-platform) |
-| `ft auth` | Set up OAuth for API-based sync (optional) |
+| `ft sync --api` | Sync via OAuth API |
+| `ft auth` | Set up OAuth for API-based sync |
 
 ### Search and browse
 
@@ -56,15 +60,15 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 | `ft stats` | Top authors, languages, date range |
 | `ft viz` | Terminal dashboard with sparklines, categories, and domains |
 | `ft categories` | Show category distribution |
-| `ft domains` | Subject domain distribution |
+| `ft domains` | Subject-domain distribution |
 
 ### Classification
 
 | Command | Description |
 |---------|-------------|
-| `ft classify` | Classify by category and domain using LLM |
+| `ft classify` | Classify by category and domain using Claude/Codex CLI |
 | `ft classify --regex` | Classify by category using simple regex |
-| `ft classify-domains` | Classify by subject domain only (LLM) |
+| `ft classify-domains` | Classify by subject domain only with LLM |
 | `ft model` | View or change the default LLM engine |
 
 ### Knowledge base
@@ -90,8 +94,8 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 
 | Command | Description |
 |---------|-------------|
-| `ft index` | Rebuild search index from JSONL cache (preserves classifications) |
-| `ft fetch-media` | Download media assets (static images only) |
+| `ft index` | Rebuild search index from JSONL cache and preserve classifications |
+| `ft fetch-media` | Download media assets, static images only |
 | `ft status` | Show sync status and data location |
 | `ft path` | Print data directory path |
 
@@ -100,7 +104,7 @@ On first run, `ft sync` extracts your X session from your browser and downloads 
 Install the `/bookmark-cli` skill so your agent automatically searches your bookmarks when relevant:
 
 ```bash
-ft skill install     # Auto-detects Claude Code and Codex
+ft skill install
 ```
 
 Then ask your agent:
@@ -117,31 +121,24 @@ Works with Claude Code, Codex, or any agent with shell access.
 
 ```bash
 # Sync every morning at 7am
-0 7 * * * ft sync
+0 7 * * * ft sync --browser helium
 
 # Sync and classify every morning
-0 7 * * * ft sync --classify
+0 7 * * * ft sync --browser helium --classify
 ```
 
 ## Data
 
 All data is stored locally at `~/.ft-bookmarks/`:
 
-```
+```text
 ~/.ft-bookmarks/
-  bookmarks.jsonl         # raw bookmark cache (one per line)
+  bookmarks.jsonl         # raw bookmark cache, one JSON record per line
   bookmarks.db            # SQLite FTS5 search index
   bookmarks-meta.json     # sync metadata
-  oauth-token.json        # OAuth token (if using API mode, chmod 600)
-  md/                     # markdown knowledge base (ft wiki / ft md)
+  oauth-token.json        # OAuth token, if using API mode; chmod 600
+  md/                     # markdown knowledge base from ft wiki / ft md
 ```
-
-## License
-
-MIT — [https://github.com/kartikkabadi/bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)
-## Repository
-
-[bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)
 
 Override the location with `FT_DATA_DIR`:
 
@@ -149,7 +146,11 @@ Override the location with `FT_DATA_DIR`:
 export FT_DATA_DIR=/path/to/custom/dir
 ```
 
-To remove all data: `rm -rf ~/.ft-bookmarks`
+To remove all data:
+
+```bash
+rm -rf ~/.ft-bookmarks
+```
 
 ## Categories
 
@@ -169,22 +170,44 @@ Use `ft classify` for LLM-powered classification that catches what regex misses.
 
 | Feature | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| Session sync (`ft sync`) | Helium, Chrome, Brave, Arc, Firefox | Firefox | Firefox |
+| Session sync (`ft sync`) | Helium, Chrome, Brave, Arc, Firefox | Firefox; Chrome-family with manual cookies | Firefox |
 | OAuth API sync (`ft sync --api`) | Yes | Yes | Yes |
 | Search, list, classify, viz, wiki | Yes | Yes | Yes |
 
-Session sync extracts cookies from your browser's local database. Use `ft sync --browser <name>` to pick a browser. On platforms where session sync isn't available, use `ft auth` + `ft sync --api`.
+Session sync extracts cookies from your browser's local database. Use `ft sync --browser <name>` to pick a browser. On platforms where session sync is unavailable or unreliable, use `ft auth` and `ft sync --api`.
+
+## Smoke test
+
+After installing from source or a release, run:
+
+```bash
+ft --help
+ft path
+FT_DATA_DIR="$(mktemp -d)" ft status || true
+ft sync --browser helium --max-pages 1 --target-adds 5
+ft index
+ft search "ai" --limit 5
+ft classify --regex
+ft categories
+ft skill show >/tmp/bookmark-cli-skill.md
+```
+
+For a complete checklist, see [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md).
 
 ## Security
 
-**Your data stays local.** No telemetry, no analytics, nothing phoned home. The CLI only makes network requests to X's API during sync.
+**Your data stays local.** No telemetry, no analytics, nothing phoned home. The CLI only makes network requests to X during sync and optional media/gap-fill operations.
 
 **Helium session sync** reads cookies from Helium's local database, uses them for the sync request, and discards them. Cookies are never stored separately.
 
-**OAuth tokens** are stored with `chmod 600` (owner-only). Treat `~/.ft-bookmarks/oauth-token.json` like a password.
+**OAuth tokens** are stored with `chmod 600` where supported. Treat `~/.ft-bookmarks/oauth-token.json` like a password.
 
-**The default sync uses X's internal GraphQL API**, the same API that x.com uses in your browser. For the official v2 API, use `ft auth` + `ft sync --api`.
+**The default sync uses X's internal GraphQL API**, the same API that x.com uses in your browser. For the official v2 API, use `ft auth` and `ft sync --api`.
+
+## Repository
+
+https://github.com/kartikkabadi/bookmark-cli-ts
 
 ## License
 
-MIT — [https://github.com/kartikkabadi/bookmark-cli-ts](https://github.com/kartikkabadi/bookmark-cli-ts)
+MIT — https://github.com/kartikkabadi/bookmark-cli-ts
