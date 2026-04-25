@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {readdirSync, statSync} from 'node:fs';
-import {join} from 'node:path';
+import {join, relative} from 'node:path';
 import {spawnSync} from 'node:child_process';
 
 const root = process.cwd();
@@ -29,13 +29,19 @@ if (testFiles.length === 0) {
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', ...testFiles], {
-  stdio: 'inherit'
-});
+for (const file of testFiles) {
+  const label = relative(root, file);
+  console.log(`\n==> ${label}`);
+  const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', file], {
+    stdio: 'inherit'
+  });
 
-if (result.error) {
-  console.error(result.error.message);
-  process.exit(1);
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
 }
-
-process.exit(result.status ?? 1);
