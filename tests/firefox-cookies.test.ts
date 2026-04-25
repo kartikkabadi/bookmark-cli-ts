@@ -6,6 +6,17 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 
+function firefoxBaseDirForCurrentPlatform(): string | null {
+  const homeDir = os.homedir();
+  if (os.platform() === 'darwin') {
+    return path.join(homeDir, 'Library', 'Application Support', 'Firefox');
+  }
+  if (os.platform() === 'linux') {
+    return path.join(homeDir, '.mozilla', 'firefox');
+  }
+  return null;
+}
+
 /**
  * Helper to create a fake Firefox profile structure for testing.
  * Creates the structure in the actual Firefox directory location.
@@ -14,16 +25,8 @@ async function withFakeFirefoxProfile(
   profileContent: { profilesIni: string; profiles: Record<string, { cookies?: { host: string; name: string; value: string }[] }> },
   fn: () => Promise<void>
 ): Promise<void> {
-  const homeDir = os.homedir();
-  let firefoxBase: string;
-
-  if (os.platform() === 'darwin') {
-    firefoxBase = path.join(homeDir, 'Library', 'Application Support', 'Firefox');
-  } else if (os.platform() === 'linux') {
-    firefoxBase = path.join(homeDir, '.mozilla', 'firefox');
-  } else {
-    throw new Error('Unsupported platform for this test');
-  }
+  const firefoxBase = firefoxBaseDirForCurrentPlatform();
+  if (!firefoxBase) throw new Error('Unsupported platform for this test');
 
   // Create base Firefox directory
   fs.mkdirSync(firefoxBase, { recursive: true });
@@ -70,17 +73,8 @@ async function withFakeFirefoxProfile(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 test('detectFirefoxProfileDir: throws when profiles.ini does not exist', async () => {
-  const homeDir = os.homedir();
-  let firefoxBase: string;
-
-  if (os.platform() === 'darwin') {
-    firefoxBase = path.join(homeDir, 'Library', 'Application Support', 'Firefox');
-  } else if (os.platform() === 'linux') {
-    firefoxBase = path.join(homeDir, '.mozilla', 'firefox');
-  } else {
-    // Skip on unsupported platforms
-    return;
-  }
+  const firefoxBase = firefoxBaseDirForCurrentPlatform();
+  if (!firefoxBase) return;
 
   // Ensure the directory doesn't exist
   await rm(firefoxBase, { recursive: true, force: true }).catch(() => {});
@@ -177,12 +171,12 @@ IsRelative=1
 });
 
 test('detectFirefoxProfileDir: resolves absolute paths when IsRelative=0', async () => {
+  const firefoxBase = firefoxBaseDirForCurrentPlatform();
+  if (!firefoxBase) return;
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-ff-test-'));
 
   try {
-    const homeDir = os.homedir();
-    const firefoxBase = path.join(homeDir, 'Library', 'Application Support', 'Firefox');
-
     // Create Firefox base directory and profile at an absolute path
     fs.mkdirSync(firefoxBase, { recursive: true });
     const absoluteProfilePath = path.join(tmpDir, 'my-abs-profile');
@@ -212,18 +206,13 @@ IsRelative=0
     assert.equal(result, absoluteProfilePath);
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    if (firefoxBase) await rm(firefoxBase, { recursive: true, force: true }).catch(() => {});
   }
 });
 
 test('detectFirefoxProfileDir: throws on unsupported platform (win32)', async () => {
   // This test requires win32 platform - skip if not on Windows
   if (os.platform() !== 'win32') {
-    // On non-Windows, we can still test that the error is thrown for win32
-    // by directly calling the function that checks platform
-    const { firefoxBaseDir } = await import('../src/firefox-cookies.js');
-
-    // Temporarily override platform - but we can't do this easily since platform() is captured at import
-    // So we'll just skip this test on non-Windows
     return;
   }
 
@@ -333,10 +322,6 @@ IsRelative=1
 });
 
 test('extractFirefoxXCookies: rejects cookie with non-printable characters', async () => {
-  // The validation regex /^[\x21-\x7E]+$/ only allows printable ASCII.
-  // A cookie value containing a newline (0x0A) should be rejected.
-  // We test this by checking that whitespace-only value is rejected,
-  // and by verifying the validation logic handles edge cases.
   await withFakeFirefoxProfile(
     {
       profilesIni: `[Profile0]
@@ -347,7 +332,6 @@ IsRelative=1
       profiles: {
         profile: {
           cookies: [
-            // Value is whitespace-only - should fail validation after trim
             { host: '.x.com', name: 'ct0', value: '   \n\t  ' },
           ],
         },
