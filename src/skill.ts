@@ -11,7 +11,7 @@ description: Search the user's local X/Twitter bookmarks for content relevant to
 ---`;
 
 const BODY = `
-# Field Theory — Contextual Bookmark Search
+# Bookmark CLI — Contextual Bookmark Search
 
 Search the user's local X/Twitter bookmark archive for content relevant to the current task.
 
