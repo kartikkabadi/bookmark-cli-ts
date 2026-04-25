@@ -56,12 +56,22 @@ if ! printf '%s' "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   say ""
 fi
 
-install_wrapper() {
+install_release_wrapper() {
   local target="$1"
   cat > "$INSTALL_DIR/$BIN_NAME" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 exec "$target" "\$@"
+EOF
+  chmod +x "$INSTALL_DIR/$BIN_NAME"
+}
+
+install_node_wrapper() {
+  local entrypoint="$1"
+  cat > "$INSTALL_DIR/$BIN_NAME" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec node "$entrypoint" "\$@"
 EOF
   chmod +x "$INSTALL_DIR/$BIN_NAME"
 }
@@ -92,9 +102,9 @@ install_from_release() {
   rm -rf "$temp_dir"
 
   if [ -x "$APP_DIR/release/bookmark-cli-ts" ]; then
-    install_wrapper "$APP_DIR/release/bookmark-cli-ts"
+    install_release_wrapper "$APP_DIR/release/bookmark-cli-ts"
   elif [ -f "$APP_DIR/release/bin/ft.mjs" ]; then
-    install_wrapper "node $APP_DIR/release/bin/ft.mjs"
+    install_node_wrapper "$APP_DIR/release/bin/ft.mjs"
   else
     return 1
   fi
@@ -125,13 +135,7 @@ install_from_source() {
 
   say "${BLUE}Installing dependencies and building...${NC}"
   (cd "$APP_DIR/source" && pnpm install --frozen-lockfile && pnpm run build)
-
-  cat > "$INSTALL_DIR/$BIN_NAME" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-exec node "$APP_DIR/source/bin/ft.mjs" "\$@"
-EOF
-  chmod +x "$INSTALL_DIR/$BIN_NAME"
+  install_node_wrapper "$APP_DIR/source/bin/ft.mjs"
 }
 
 if ! install_from_release; then
