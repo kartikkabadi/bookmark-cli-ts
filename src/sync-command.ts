@@ -40,11 +40,27 @@ export interface SyncCommandResult {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+function isStaleBookmarkIndexSchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /table bookmarks has \d+ columns but \d+ values were supplied/i.test(message);
+}
+
 export async function rebuildIndex(): Promise<number> {
   process.stderr.write('  Building search index...\n');
-  const idx = await buildIndex();
-  process.stderr.write(`  \u2713 ${idx.recordCount} bookmarks indexed (${idx.newRecords} new)\n`);
-  return idx.newRecords;
+  try {
+    const idx = await buildIndex();
+    process.stderr.write(`  \u2713 ${idx.recordCount} bookmarks indexed (${idx.newRecords} new)\n`);
+    return idx.newRecords;
+  } catch (error) {
+    if (!isStaleBookmarkIndexSchemaError(error)) {
+      throw error;
+    }
+
+    process.stderr.write('  \u26a0 Existing search index schema is stale; rebuilding it from bookmark cache...\n');
+    const idx = await buildIndex({force: true});
+    process.stderr.write(`  \u2713 ${idx.recordCount} bookmarks indexed (${idx.newRecords} new)\n`);
+    return idx.newRecords;
+  }
 }
 
 export async function classifyNew(): Promise<void> {
