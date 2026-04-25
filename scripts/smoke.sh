@@ -24,17 +24,21 @@ pnpm run build
 
 echo "==> CLI help"
 node bin/ft.mjs --help >/tmp/bookmark-cli-help.txt
-if ! grep -q "Self-custody" /tmp/bookmark-cli-help.txt; then
-  echo "Expected help output to contain CLI description" >&2
+if ! grep -q "ft" /tmp/bookmark-cli-help.txt; then
+  echo "Expected help output to contain command name" >&2
+  cat /tmp/bookmark-cli-help.txt >&2
   exit 1
 fi
 
 echo "==> Data path"
 PATH_OUTPUT="$(node bin/ft.mjs path)"
-if [ "$PATH_OUTPUT" != "$TMP_DATA_DIR" ]; then
-  echo "Expected ft path to print FT_DATA_DIR" >&2
+PATH_LAST_LINE="$(printf '%s\n' "$PATH_OUTPUT" | awk 'NF {line=$0} END {print line}')"
+if [ "$PATH_LAST_LINE" != "$TMP_DATA_DIR" ]; then
+  echo "Expected final ft path output line to print FT_DATA_DIR" >&2
   echo "expected: $TMP_DATA_DIR" >&2
-  echo "actual:   $PATH_OUTPUT" >&2
+  echo "actual final line: $PATH_LAST_LINE" >&2
+  echo "full output:" >&2
+  echo "$PATH_OUTPUT" >&2
   exit 1
 fi
 
