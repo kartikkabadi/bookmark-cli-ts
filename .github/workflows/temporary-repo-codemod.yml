@@ -1,0 +1,363 @@
+name: Temporary scoped repo codemod
+
+on:
+  push:
+    branches:
+      - codemod/bookmark-db-and-date-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: ${{ !contains(github.event.head_commit.message, 'Apply bookmark DB/date codemod') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codemod branch
+        uses: actions/checkout@v4
+        with:
+          ref: codemod/bookmark-db-and-date-hardening
+          fetch-depth: 0
+
+      - name: Apply code changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function replaceOnce(file, needle, replacement, label) {
+            let src = fs.readFileSync(file, 'utf8');
+            if (!src.includes(needle)) throw new Error(`Missing ${label} in ${file}`);
+            src = src.replace(needle, replacement);
+            fs.writeFileSync(file, src);
+          }
+
+          // 1) bookmarks-db: fix date GLOB pattern and make insert resilient to additive schema columns.
+          replaceOnce(
+            'src/bookmarks-db.ts',
+            "WHEN b.bookmarked_at GLOB '____-__-__*' THEN b.bookmarked_at\n        WHEN b.posted_at GLOB '____-__-__*' THEN b.posted_at",
+            "WHEN b.bookmarked_at GLOB '????-??-??*' THEN b.bookmarked_at\n        WHEN b.posted_at GLOB '????-??-??*' THEN b.posted_at",
+            'SQLite date GLOB pattern'
+          );
+
+          replaceOnce(
+            'src/bookmarks-db.ts',
+            "db.run(`INSERT OR REPLACE INTO bookmarks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [r.id, r.tweetId, r.url, r.text, r.authorHandle ?? null, r.authorName ?? null, r.authorProfileImageUrl ?? null, r.postedAt ?? null, r.bookmarkedAt ?? null, r.syncedAt, r.conversationId ?? null, r.inReplyToStatusId ?? null, r.quotedStatusId ?? null, r.language ?? null, r.engagement?.likeCount ?? null, r.engagement?.repostCount ?? null, r.engagement?.replyCount ?? null, r.engagement?.quoteCount ?? null, r.engagement?.bookmarkCount ?? null, r.engagement?.viewCount ?? null, r.media?.length ?? 0, r.links?.length ?? 0, r.links?.length ? JSON.stringify(r.links) : null, r.tags?.length ? JSON.stringify(r.tags) : null, r.ingestedVia ?? null, preserved?.categories ?? null, preserved?.primaryCategory ?? 'unclassified', preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null), preserved?.domains ?? null, preserved?.primaryDomain ?? null, r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null)]);",
+            `db.run(\`INSERT OR REPLACE INTO bookmarks (
+    id,
+    tweet_id,
+    url,
+    text,
+    author_handle,
+    author_name,
+    author_profile_image_url,
+    posted_at,
+    bookmarked_at,
+    synced_at,
+    conversation_id,
+    in_reply_to_status_id,
+    quoted_status_id,
+    language,
+    like_count,
+    repost_count,
+    reply_count,
+    quote_count,
+    bookmark_count,
+    view_count,
+    media_count,
+    link_count,
+    links_json,
+    tags_json,
+    ingested_via,
+    categories,
+    primary_category,
+    github_urls,
+    domains,
+    primary_domain,
+    quoted_tweet_json
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)\`, [
+    r.id,
+    r.tweetId,
+    r.url,
+    r.text,
+    r.authorHandle ?? null,
+    r.authorName ?? null,
+    r.authorProfileImageUrl ?? null,
+    r.postedAt ?? null,
+    r.bookmarkedAt ?? null,
+    r.syncedAt,
+    r.conversationId ?? null,
+    r.inReplyToStatusId ?? null,
+    r.quotedStatusId ?? null,
+    r.language ?? null,
+    r.engagement?.likeCount ?? null,
+    r.engagement?.repostCount ?? null,
+    r.engagement?.replyCount ?? null,
+    r.engagement?.quoteCount ?? null,
+    r.engagement?.bookmarkCount ?? null,
+    r.engagement?.viewCount ?? null,
+    r.media?.length ?? 0,
+    r.links?.length ?? 0,
+    r.links?.length ? JSON.stringify(r.links) : null,
+    r.tags?.length ? JSON.stringify(r.tags) : null,
+    r.ingestedVia ?? null,
+    preserved?.categories ?? null,
+    preserved?.primaryCategory ?? 'unclassified',
+    preserved?.githubUrls ?? (githubUrls.length ? JSON.stringify(githubUrls) : null),
+    preserved?.domains ?? null,
+    preserved?.primaryDomain ?? null,
+    r.quotedTweet ? JSON.stringify(r.quotedTweet) : (preserved?.quotedTweetJson ?? null)
+  ]);`,
+            'positional bookmark insert'
+          );
+
+          // 2) graphql-bookmarks: expand bookmark timestamp extraction beyond entry.sortIndex snowflake only.
+          replaceOnce(
+            'src/graphql-bookmarks.ts',
+            `function snowflakeToIso(snowflake: string): string | null {
+  try {
+    const id = BigInt(snowflake);
+    const ms = Number(id >> 22n) + Number(TWITTER_SNOWFLAKE_EPOCH);
+    const date = new Date(ms);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  } catch {
+    return null;
+  }
+}`,
+            `function isSaneTimestampMs(ms: number): boolean {
+  const min = Date.UTC(2006, 0, 1);
+  const max = Date.now() + 365 * 24 * 60 * 60 * 1000;
+  return Number.isFinite(ms) && ms >= min && ms <= max;
+}
+
+function isoFromMs(ms: number): string | null {
+  if (!isSaneTimestampMs(ms)) return null;
+  const date = new Date(ms);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function snowflakeToIso(snowflake: string): string | null {
+  try {
+    const id = BigInt(snowflake);
+    const ms = Number(id >> 22n) + Number(TWITTER_SNOWFLAKE_EPOCH);
+    return isoFromMs(ms);
+  } catch {
+    return null;
+  }
+}
+
+function timestampLikeToIso(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (/^\\d+$/.test(trimmed)) {
+      const n = Number(trimmed);
+      if (Number.isSafeInteger(n)) {
+        if (trimmed.length <= 10) return isoFromMs(n * 1000);
+        if (trimmed.length >= 12 && trimmed.length <= 14) return isoFromMs(n);
+        if (trimmed.length >= 15 && trimmed.length <= 17) return isoFromMs(Math.floor(n / 1000));
+      }
+      return snowflakeToIso(trimmed);
+    }
+
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? isoFromMs(parsed) : null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value < 10_000_000_000) return isoFromMs(value * 1000);
+    if (value < 10_000_000_000_000) return isoFromMs(value);
+    if (value < 10_000_000_000_000_000) return isoFromMs(Math.floor(value / 1000));
+  }
+
+  return null;
+}
+
+function collectBookmarkTimestampCandidates(value: unknown, out: unknown[] = [], depth = 0): unknown[] {
+  if (depth > 8 || value == null) return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectBookmarkTimestampCandidates(item, out, depth + 1);
+    return out;
+  }
+  if (typeof value !== 'object') return out;
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (/^(sortIndex|sort_index|bookmarked_at|bookmarkedAt|bookmark_created_at|bookmarkCreatedAt|saved_at|savedAt)$/i.test(key)) {
+      out.push(child);
+    }
+    if (typeof child === 'object' && child != null) {
+      collectBookmarkTimestampCandidates(child, out, depth + 1);
+    }
+  }
+  return out;
+}
+
+function extractBookmarkedAtFromEntry(entry: unknown, record: BookmarkRecord): string | null {
+  const candidates = collectBookmarkTimestampCandidates(entry);
+  for (const candidate of candidates) {
+    const iso = timestampLikeToIso(candidate);
+    if (!iso) continue;
+    const sanitized = sanitizeBookmarkedAt({...record, bookmarkedAt: iso});
+    if (sanitized.bookmarkedAt) return sanitized.bookmarkedAt;
+  }
+  return null;
+}`,
+            'snowflake timestamp extraction block'
+          );
+
+          replaceOnce(
+            'src/graphql-bookmarks.ts',
+            `    if (record) {
+      // Extract bookmarkedAt from the entry's sortIndex (snowflake timestamp)
+      if (entry.sortIndex) {
+        record.bookmarkedAt = snowflakeToIso(entry.sortIndex) ?? record.bookmarkedAt;
+      }
+      records.push(sanitizeBookmarkedAt(record));
+    }`,
+            `    if (record) {
+      record.bookmarkedAt = extractBookmarkedAtFromEntry(entry, record) ?? record.bookmarkedAt;
+      records.push(sanitizeBookmarkedAt(record));
+    }`,
+            'parseBookmarksResponse bookmarkedAt assignment'
+          );
+
+          // 3) Add regression tests.
+          let graphqlTests = fs.readFileSync('tests/graphql-bookmarks.test.ts', 'utf8');
+          if (!graphqlTests.includes('parseBookmarksResponse: extracts bookmarkedAt from nested bookmark metadata')) {
+            graphqlTests = graphqlTests.replace(
+              `test('parseBookmarksResponse: handles missing sortIndex gracefully', () => {`,
+              `test('parseBookmarksResponse: extracts bookmarkedAt from nested bookmark metadata', () => {
+  const tr = makeTweetResult();
+  const resp = {
+    data: {
+      bookmark_timeline_v2: {
+        timeline: {
+          instructions: [{
+            type: 'TimelineAddEntries',
+            entries: [{
+              entryId: 'tweet-0',
+              content: {
+                itemContent: { tweet_results: { result: tr } },
+                bookmark_info: { bookmarked_at: '2026-03-12T00:00:00.000Z' },
+              },
+            }],
+          }],
+        },
+      },
+    },
+  };
+  const { records } = parseBookmarksResponse(resp, NOW);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].bookmarkedAt, '2026-03-12T00:00:00.000Z');
+});
+
+test('parseBookmarksResponse: ignores invalid future bookmarkedAt candidates and keeps valid later candidate', () => {
+  const tr = makeTweetResult();
+  const resp = {
+    data: {
+      bookmark_timeline_v2: {
+        timeline: {
+          instructions: [{
+            type: 'TimelineAddEntries',
+            entries: [{
+              entryId: 'tweet-0',
+              sortIndex: '9999999999999999999',
+              content: {
+                itemContent: { tweet_results: { result: tr } },
+                bookmark_info: { bookmarked_at: '2026-03-13T00:00:00.000Z' },
+              },
+            }],
+          }],
+        },
+      },
+    },
+  };
+  const { records } = parseBookmarksResponse(resp, NOW);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].bookmarkedAt, '2026-03-13T00:00:00.000Z');
+});
+
+$&`
+            );
+            fs.writeFileSync('tests/graphql-bookmarks.test.ts', graphqlTests);
+          }
+
+          let dbTests = fs.readFileSync('tests/bookmarks-db.test.ts', 'utf8');
+          if (!dbTests.includes('buildIndex tolerates additive bookmark table columns')) {
+            dbTests += `
+
+test('buildIndex tolerates additive bookmark table columns', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const jsonl = FIXTURES.map((r) => JSON.stringify(r)).join('\\n') + '\\n';
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), jsonl);
+
+    await buildIndex();
+
+    const dbPath = twitterBookmarksIndexPath();
+    const db = await openDb(dbPath);
+    try {
+      db.run('ALTER TABLE bookmarks ADD COLUMN future_column TEXT');
+      saveDb(db, dbPath);
+    } finally {
+      db.close();
+    }
+
+    const result = await buildIndex();
+    assert.equal(result.recordCount, 3);
+
+    const bookmark = await getBookmarkById('1');
+    assert.ok(bookmark);
+    assert.equal(bookmark.text, 'Machine learning is transforming healthcare');
+  });
+});
+
+test('listBookmarks sorts valid ISO-like bookmark dates using SQLite GLOB semantics', async () => {
+  await withIsolatedDataDir(async (dir) => {
+    const records = [
+      {...FIXTURES[0], id: 'old', tweetId: '100', bookmarkedAt: '2026-01-01T00:00:00.000Z'},
+      {...FIXTURES[1], id: 'new', tweetId: '101', bookmarkedAt: '2026-02-01T00:00:00.000Z'},
+    ];
+    await writeFile(path.join(dir, 'bookmarks.jsonl'), records.map((r) => JSON.stringify(r)).join('\\n') + '\\n');
+
+    await buildIndex({force: true});
+    const listed = await listBookmarks({sort: 'desc', limit: 2});
+    assert.equal(listed[0].id, 'new');
+    assert.equal(listed[1].id, 'old');
+  });
+});
+`;
+            fs.writeFileSync('tests/bookmarks-db.test.ts', dbTests);
+          }
+
+          fs.rmSync('.codemod-trigger', {force: true});
+          fs.rmSync('.github/workflows/temporary-repo-codemod.yml', {force: true});
+          NODE
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate codemod result
+        run: pnpm run smoke
+
+      - name: Commit generated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply bookmark DB/date codemod"
+          git push origin HEAD:codemod/bookmark-db-and-date-hardening
