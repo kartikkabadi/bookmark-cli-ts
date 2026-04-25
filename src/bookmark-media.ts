@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {lookup as dnsLookup} from 'node:dns/promises';
 import {writeFile} from 'node:fs/promises';
 import {ensureDir, pathExists, readJson, readJsonLines, writeJson} from './fs.js';
 import {bookmarkMediaDir, bookmarkMediaManifestPath, twitterBookmarksCachePath} from './paths.js';
@@ -35,14 +36,26 @@ function ipMatchesBlock(ip: string, blockIp: string, mask: number): boolean {
   return targetNum >> bits === blockNum >> bits;
 }
 
-function isPrivateIp(hostname: string): boolean {
-  if (PRIVATE_IP_BLOCKS.some((b) => ipMatchesBlock(hostname, b.ip, b.mask))) return true;
-  // Also block numeric IPv4 addresses that Node.js may resolve
-  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
-    // Numeric IP: check all private blocks
-    if (PRIVATE_IP_BLOCKS.some((b) => ipMatchesBlock(hostname, b.ip, b.mask))) return true;
+function isPrivateIpv4(hostname: string): boolean {
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return false;
+  const octets = hostname.split('.').map(Number);
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false;
+  return PRIVATE_IP_BLOCKS.some((b) => ipMatchesBlock(hostname, b.ip, b.mask));
+}
+
+function isBlockedNetworkHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  if (normalized === 'localhost') return true;
+  if (normalized === '::1' || normalized === '[::1]' || normalized === '0.0.0.0') return true;
+  return isPrivateIpv4(normalized);
+}
+
+function networkBlockReason(hostname: string): string {
+  if (hostname.toLowerCase() === 'localhost') return 'Private/network address not allowed: localhost';
+  if (hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]' || hostname === '0.0.0.0') {
+    return 'Private/network address not allowed: loopback address';
   }
-  return false;
+  return `Private/network address not allowed: ${hostname}`;
 }
 
 export function validateMediaUrl(urlString: string): MediaUrlValidation {
@@ -59,23 +72,44 @@ export function validateMediaUrl(urlString: string): MediaUrlValidation {
   }
 
   const hostname = url.hostname.toLowerCase();
-
-  // Reject localhost (case-insensitive)
-  if (hostname === 'localhost') {
-    return {valid: false, reason: 'Private/network address not allowed: localhost'};
-  }
-
-  // Reject loopback
-  if (hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]' || hostname === '0.0.0.0') {
-    return {valid: false, reason: 'Private/network address not allowed: loopback address'};
-  }
-
-  // Reject private IP ranges
-  if (isPrivateIp(hostname)) {
-    return {valid: false, reason: `Private/network address not allowed: ${hostname}`};
+  if (isBlockedNetworkHostname(hostname)) {
+    return {valid: false, reason: networkBlockReason(hostname)};
   }
 
   return {valid: true};
+}
+
+export type MediaDnsLookup = (hostname: string) => Promise<Array<{address: string; family: number}>>;
+
+async function defaultMediaDnsLookup(hostname: string): Promise<Array<{address: string; family: number}>> {
+  return dnsLookup(hostname, {all: true});
+}
+
+export async function validateMediaUrlForFetch(urlString: string, lookup: MediaDnsLookup = defaultMediaDnsLookup): Promise<MediaUrlValidation> {
+  const staticValidation = validateMediaUrl(urlString);
+  if (!staticValidation.valid) return staticValidation;
+
+  const url = new URL(urlString);
+  const hostname = url.hostname.toLowerCase();
+
+  // Literal IPs were already checked synchronously. DNS lookup here blocks hostnames
+  // that resolve to private/link-local/loopback addresses before fetch() can connect.
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) || hostname.includes(':')) {
+    return staticValidation;
+  }
+
+  try {
+    const addresses = await lookup(hostname);
+    for (const entry of addresses) {
+      const address = entry.address.toLowerCase();
+      if (isBlockedNetworkHostname(address)) {
+        return {valid: false, reason: `Hostname resolves to private/network address: ${address}`};
+      }
+    }
+    return staticValidation;
+  } catch (error) {
+    return {valid: false, reason: `DNS lookup failed: ${error instanceof Error ? error.message : String(error)}`};
+  }
 }
 
 export interface MediaFetchEntry {
@@ -125,7 +159,7 @@ async function loadManifest(): Promise<MediaFetchManifest | null> {
   return readJson<MediaFetchManifest>(manifestPath);
 }
 
-export async function fetchBookmarkMediaBatch(options: {limit?: number; maxBytes?: number} = {}): Promise<MediaFetchManifest> {
+export async function fetchBookmarkMediaBatch(options: {limit?: number; maxBytes?: number; lookup?: MediaDnsLookup} = {}): Promise<MediaFetchManifest> {
   const limit = options.limit ?? 100;
   const maxBytes = options.maxBytes ?? 50 * 1024 * 1024;
   const mediaDir = bookmarkMediaDir();
@@ -174,8 +208,8 @@ export async function fetchBookmarkMediaBatch(options: {limit?: number; maxBytes
 
       const fetchedAt = new Date().toISOString();
 
-      // SSRF protection: validate URL before fetching
-      const validation = validateMediaUrl(sourceUrl);
+      // SSRF protection: validate URL and DNS resolution before fetching
+      const validation = await validateMediaUrlForFetch(sourceUrl, options.lookup);
       if (!validation.valid) {
         entries.push({
           bookmarkId: bookmark.id,
