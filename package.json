@@ -17,7 +17,9 @@
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "typecheck": "tsc --noEmit",
-    "smoke": "bash scripts/smoke.sh"
+    "smoke": "bash scripts/smoke.sh",
+    "live:helium": "bash scripts/live-helium-smoke.sh",
+    "link:force": "npm link --force"
   },
   "engines": {
     "node": ">=20"
