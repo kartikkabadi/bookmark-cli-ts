@@ -1,0 +1,23 @@
+{
+  "name": "Bookmark CLI TS",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "corepack enable pnpm && pnpm install --frozen-lockfile && pnpm run build",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  },
+  "remoteEnv": {
+    "FT_DATA_DIR": "${containerWorkspaceFolder}/.ft-bookmarks-dev"
+  }
+}
