@@ -58,7 +58,10 @@ export interface BookmarkRecord {
   url: string;
   text: string;
   postedAt?: string | null;
+  /** Reliable bookmark timestamp when supplied by an official source. */
   bookmarkedAt?: string | null;
+  /** Opaque X timeline ordering value. Never interpret it as a timestamp. */
+  sortIndex?: string;
   syncedAt: string;
   conversationId?: string;
   inReplyToStatusId?: string;
