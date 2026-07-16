@@ -22,11 +22,35 @@ pnpm run typecheck
 echo "==> Build"
 pnpm run build
 
-echo "==> CLI help"
+echo "==> Legacy CLI help"
 node bin/ft.mjs --help >/tmp/bookmark-cli-help.txt
 if ! grep -q "ft" /tmp/bookmark-cli-help.txt; then
   echo "Expected help output to contain command name" >&2
   cat /tmp/bookmark-cli-help.txt >&2
+  exit 1
+fi
+
+echo "==> Memoria X binary help"
+node bin/memoria-x.mjs sync --help >/tmp/memoria-x-help.txt
+if ! grep -q -- "--cookie-header" /tmp/memoria-x-help.txt; then
+  echo "Expected memoria-x sync help to expose browser-session fallback flags" >&2
+  cat /tmp/memoria-x-help.txt >&2
+  exit 1
+fi
+
+echo "==> Direct development entrypoint"
+pnpm exec tsx src/memoria-x-cli.ts --help >/tmp/memoria-x-dev-help.txt
+if ! grep -q "memoria-x" /tmp/memoria-x-dev-help.txt; then
+  echo "Expected TypeScript entrypoint to execute the CLI" >&2
+  cat /tmp/memoria-x-dev-help.txt >&2
+  exit 1
+fi
+
+echo "==> Direct built entrypoint"
+node dist/memoria-x-cli.js --help >/tmp/memoria-x-start-help.txt
+if ! grep -q "memoria-x" /tmp/memoria-x-start-help.txt; then
+  echo "Expected built entrypoint to execute the CLI" >&2
+  cat /tmp/memoria-x-start-help.txt >&2
   exit 1
 fi
 

@@ -1,213 +1,135 @@
-# Bookmark CLI TS
+# Memoria X Connector
 
-Sync and store your X/Twitter bookmarks locally. Search, classify, visualize, and expose them to Claude Code, Codex, or any agent with shell access.
+**Turn the X posts you save into private working knowledge for every agent you use.**
 
-Free and open source. Helium-first. Designed for macOS with Helium browser. Also supports Chrome, Firefox, Brave, Arc, and OAuth API sync.
-
-## Install
-
-**Quick install:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/kartikkabadi/bookmark-cli-ts/main/install.sh | bash
-```
-
-The installer uses GitHub release assets when available and falls back to a source build if a release asset is missing. It installs `ft` into `~/.local/bin` by default. Override with `INSTALL_DIR=/path/to/bin` if needed.
-
-Requires Node.js 20+. Helium is recommended for session sync; other browsers are supported; OAuth is available for cross-platform API sync.
-
-## Quick start
-
-```bash
-# 1. Sync your bookmarks. Helium must be logged into X.
-ft sync --browser helium
-
-# 2. Search them.
-ft search "distributed systems"
-
-# 3. Explore.
-ft viz
-ft categories
-ft stats
-```
-
-On first run, `ft sync` extracts your X session from your browser and downloads your bookmarks into `~/.ft-bookmarks/`. Use `ft sync --browser helium` to sync with Helium, or `ft sync --browser firefox` for Firefox.
-
-## Commands
-
-### Sync
-
-| Command | Description |
-|---------|-------------|
-| `ft sync` | Download and sync bookmarks with browser-session GraphQL |
-| `ft sync --browser helium` | Sync with Helium browser explicitly |
-| `ft sync --rebuild` | Full history crawl, not just incremental sync |
-| `ft sync --gaps` | Backfill missing quoted tweets and expand truncated articles |
-| `ft sync --continue` | Resume a previous sync that was interrupted or hit the page limit |
-| `ft sync --yes` | Skip confirmation prompts |
-| `ft sync --classify` | Sync then classify new bookmarks with LLM |
-| `ft sync --api` | Sync via OAuth API |
-| `ft auth` | Set up OAuth for API-based sync |
-
-### Search and browse
-
-| Command | Description |
-|---------|-------------|
-| `ft search <query>` | Full-text search with BM25 ranking |
-| `ft list` | Filter by author, date, category, domain |
-| `ft show <id>` | Show one bookmark in detail |
-| `ft sample <category>` | Random sample from a category |
-| `ft stats` | Top authors, languages, date range |
-| `ft viz` | Terminal dashboard with sparklines, categories, and domains |
-| `ft categories` | Show category distribution |
-| `ft domains` | Subject-domain distribution |
-
-### Classification
-
-| Command | Description |
-|---------|-------------|
-| `ft classify` | Classify by category and domain using Claude/Codex CLI |
-| `ft classify --regex` | Classify by category using simple regex |
-| `ft classify-domains` | Classify by subject domain only with LLM |
-| `ft model` | View or change the default LLM engine |
-
-### Knowledge base
-
-| Command | Description |
-|---------|-------------|
-| `ft md` | Export bookmarks as individual markdown files |
-| `ft wiki` | Compile a Karpathy-style interlinked knowledge base |
-| `ft ask <question>` | Ask questions against the knowledge base |
-| `ft ask <question> --save` | Ask and save the answer as a concept page |
-| `ft lint` | Health-check the wiki for broken links and missing pages |
-| `ft lint --fix` | Auto-fix fixable wiki issues |
-
-### Agent integration
-
-| Command | Description |
-|---------|-------------|
-| `ft skill install` | Install `/bookmark-cli` skill for Claude Code and Codex |
-| `ft skill show` | Print skill content to stdout |
-| `ft skill uninstall` | Remove installed skill files |
-
-### Utilities
-
-| Command | Description |
-|---------|-------------|
-| `ft index` | Rebuild search index from JSONL cache and preserve classifications |
-| `ft fetch-media` | Download media assets, static images only |
-| `ft status` | Show sync status and data location |
-| `ft path` | Print data directory path |
-
-## Agent integration
-
-Install the `/bookmark-cli` skill so your agent automatically searches your bookmarks when relevant:
-
-```bash
-ft skill install
-```
-
-Then ask your agent:
-
-> "What have I bookmarked about cancer research in the last three years and how has it progressed?"
-
-> "I bookmarked a number of new open source AI memory tools. Pick the best one and figure out how to incorporate it in this repo."
-
-> "Every day please sync any new X bookmarks using the Bookmark CLI."
-
-Works with Claude Code, Codex, or any agent with shell access.
-
-## Scheduling
-
-```bash
-# Sync every morning at 7am
-0 7 * * * ft sync --browser helium
-
-# Sync and classify every morning
-0 7 * * * ft sync --browser helium --classify
-```
-
-## Data
-
-All data is stored locally at `~/.ft-bookmarks/`:
+This repository is no longer a standalone bookmark knowledge-base product. It is the first ingestion connector for [Hermes Memoria](https://github.com/kartikkabadi/hermes-memoria): a local-first, provider-neutral vault that agents consult while doing real research, planning, architecture, implementation, debugging, and writing.
 
 ```text
-~/.ft-bookmarks/
-  bookmarks.jsonl         # raw bookmark cache, one JSON record per line
-  bookmarks.db            # SQLite FTS5 search index
-  bookmarks-meta.json     # sync metadata
-  oauth-token.json        # OAuth token, if using API mode; chmod 600
-  md/                     # markdown knowledge base from ft wiki / ft md
+X bookmarks
+    ↓ browser session or official OAuth API
+Memoria X Connector
+    ↓ memoria.ingest.v1 NDJSON
+Hermes Memoria vault
+    ↓ recall_for_task
+Codex · Claude Code · Devin · Loop · any MCP or shell agent
 ```
 
-Override the location with `FT_DATA_DIR`:
+## What this connector owns
+
+- Incrementally synchronizing X bookmarks
+- Preserving post, author, quote, media, link, and source metadata
+- Converting records to the versioned `memoria.ingest.v1` protocol
+- Handing them to the local `memoria` CLI
+- Installing an optional daily macOS LaunchAgent
+- Detecting X, session, OAuth, and schema failures without pretending the vault is healthy
+
+Search, ranking, agent retrieval, usage feedback, and MCP live in Hermes Memoria—not here.
+
+## Requirements
+
+- Node.js 24 or newer
+- pnpm 10.7 for development
+- Either a supported browser logged into X or an X Native App configured for OAuth 2.0 PKCE
+- Hermes Memoria installed when using `--ingest` or daily scheduling
+
+## Development
 
 ```bash
-export FT_DATA_DIR=/path/to/custom/dir
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm test
+pnpm build
+
+node bin/memoria-x.mjs doctor
 ```
 
-To remove all data:
+## Browser-session workflow
 
 ```bash
-rm -rf ~/.ft-bookmarks
+# Sync and immediately ingest into the Memoria vault
+memoria-x sync --browser helium --ingest
+
+# Install a daily 07:00 macOS sync
+memoria-x schedule install --time 07:00 --browser helium
 ```
 
-## Categories
+Browser-session sync is the zero-developer-account path. It reads the existing local X session only for the request and never emits cookies into the Memoria protocol.
 
-| Category | What it catches |
-|----------|----------------|
-| **tool** | GitHub repos, CLI tools, open-source projects |
-| **security** | CVEs, vulnerabilities, exploits, supply chain |
-| **technique** | Tutorials, demos, code patterns, "how I built X" |
-| **launch** | Product launches, announcements, "just shipped" |
-| **research** | ArXiv papers, studies, academic findings |
-| **opinion** | Takes, analysis, commentary, threads |
-| **commerce** | Products, shopping, physical goods |
+## Official API workflow
 
-Use `ft classify` for LLM-powered classification that catches what regex misses.
-
-## Platform support
-
-| Feature | macOS | Linux | Windows |
-|---------|-------|-------|---------|
-| Session sync (`ft sync`) | Helium, Chrome, Brave, Arc, Firefox | Firefox; Chrome-family with manual cookies | Firefox |
-| OAuth API sync (`ft sync --api`) | Yes | Yes | Yes |
-| Search, list, classify, viz, wiki | Yes | Yes | Yes |
-
-Session sync extracts cookies from your browser's local database. Use `ft sync --browser <name>` to pick a browser. On platforms where session sync is unavailable or unreliable, use `ft auth` and `ft sync --api`.
-
-## Smoke test
-
-After installing from source or a release, run:
+Create an X Native App with OAuth 2.0 enabled and a loopback callback such as `http://127.0.0.1:3000/callback`, then configure:
 
 ```bash
-ft --help
-ft path
-FT_DATA_DIR="$(mktemp -d)" ft status || true
-ft sync --browser helium --max-pages 1 --target-adds 5
-ft index
-ft search "ai" --limit 5
-ft classify --regex
-ft categories
-ft skill show >/tmp/bookmark-cli-skill.md
+export X_CLIENT_ID="your-public-client-id"
+export X_CALLBACK_URL="http://127.0.0.1:3000/callback"
 ```
 
-For a complete checklist, see [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md).
+A native/public client does not require a client secret. `X_CLIENT_SECRET` remains supported only for an explicitly configured confidential client.
 
-## Security
+```bash
+memoria-x auth
+memoria-x sync --api --ingest
+memoria-x schedule install --time 07:00 --api
+```
 
-**Your data stays local.** No telemetry, no analytics, nothing phoned home. The CLI only makes network requests to X during sync and optional media/gap-fill operations.
+Official API access can incur X usage charges. The connector does not hide or proxy those requests.
 
-**Helium session sync** reads cookies from Helium's local database, uses them for the sync request, and discards them. Cookies are never stored separately.
+## Export and handoff
 
-**OAuth tokens** are stored with `chmod 600` where supported. Treat `~/.ft-bookmarks/oauth-token.json` like a password.
+```bash
+# Complete archive export without touching X
+memoria-x export --stdout > x-bookmarks.ndjson
+cat x-bookmarks.ndjson | memoria ingest -
 
-**The default sync uses X's internal GraphQL API**, the same API that x.com uses in your browser. For the official v2 API, use `ft auth` and `ft sync --api`.
+# Inspect only the newest 500 records
+memoria-x export --limit 500 --stdout
+```
 
-## Repository
+Normal daily sync writes and ingests a bounded recent frontier rather than reprocessing the complete archive. The frontier is at least 200 records and expands with the number of newly added bookmarks. Use `memoria-x sync --full-export` or `--rebuild` when the entire archive must be handed off again.
 
-https://github.com/kartikkabadi/bookmark-cli-ts
+Every export is written atomically to `memoria.ndjson` inside the connector data directory. `--stdout` additionally emits it on stdout. `--ingest` pipes it directly to `memoria ingest -`.
+
+## Data and migration
+
+New installations use:
+
+```text
+~/.hermes/memoria/connectors/x/
+  bookmarks.jsonl
+  bookmarks.db
+  bookmarks-meta.json
+  bookmarks-backfill-state.json
+  memoria.ndjson
+  oauth-token.json
+  media/
+  logs/
+```
+
+Existing `~/.ft-bookmarks` archives continue in place automatically. Nothing is moved or deleted. Set `MEMORIA_X_HOME` to choose a directory. `FT_DATA_DIR` remains a deprecated compatibility override.
+
+Browser configuration prefers `MEMORIA_X_BROWSER`, `MEMORIA_X_CHROME_USER_DATA_DIR`, and `MEMORIA_X_CHROME_PROFILE_DIRECTORY`; the older `FT_*` names remain compatibility aliases.
+
+## Timestamp correctness
+
+X's internal GraphQL timeline `sortIndex` is an ordering value, not a trustworthy bookmark timestamp. The Memoria envelope therefore never presents GraphQL-derived `bookmarkedAt` values as factual time. Official API records preserve only timestamps actually returned by that source.
+
+## Trust and security
+
+- Source payloads are untrusted evidence, never executable instructions.
+- Browser cookies are transient and never copied into the Memoria envelope.
+- OAuth tokens are stored locally with owner-only file permissions.
+- Raw normalized bookmark records remain local.
+- The default handoff to Memoria is a local child process over stdin.
+- Saved posts are personal priors, not verified facts; agents must verify important claims against current primary sources.
+
+## Legacy CLI
+
+The old `ft` binary remains temporarily available so existing archives and workflows do not break. It is a compatibility surface, not the new product direction. New automation should use `memoria-x` and `memoria`.
+
+## Provenance
+
+This codebase began as a fork of Andrew Farah's MIT-licensed [`afar1/fieldtheory-cli`](https://github.com/afar1/fieldtheory-cli). The new connector architecture, Memoria protocol, and agent-vault direction are maintained independently here.
 
 ## License
 
-MIT — https://github.com/kartikkabadi/bookmark-cli-ts
+MIT

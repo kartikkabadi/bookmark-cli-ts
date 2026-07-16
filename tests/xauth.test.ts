@@ -3,15 +3,31 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { saveTwitterOAuthToken, refreshOAuthToken } from '../src/xauth.js';
+import {
+  buildTwitterOAuthUrl,
+  refreshOAuthToken,
+  saveTwitterOAuthToken
+} from '../src/xauth.js';
 
-test('saveTwitterOAuthToken: writes private token file on posix', async () => {
+function setupEnv(contents: string): {directory: string; restore: () => void} {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'memoria-xauth-'));
+  const previous = process.env.MEMORIA_X_HOME;
+  process.env.MEMORIA_X_HOME = directory;
+  fs.writeFileSync(path.join(directory, '.env.local'), contents);
+  return {
+    directory,
+    restore: () => {
+      if (previous === undefined) delete process.env.MEMORIA_X_HOME;
+      else process.env.MEMORIA_X_HOME = previous;
+      for (const key of ['X_CLIENT_ID', 'X_CLIENT_SECRET', 'X_CALLBACK_URL']) delete process.env[key];
+      fs.rmSync(directory, {recursive: true, force: true});
+    }
+  };
+}
+
+test('saveTwitterOAuthToken writes a private token file on POSIX', async () => {
   if (process.platform === 'win32') return;
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-xauth-test-'));
-  const origEnv = process.env.FT_DATA_DIR;
-  process.env.FT_DATA_DIR = tmpDir;
-
+  const env = setupEnv('X_CLIENT_ID=native-client\n');
   try {
     const tokenPath = await saveTwitterOAuthToken({
       access_token: 'access',
@@ -19,96 +35,107 @@ test('saveTwitterOAuthToken: writes private token file on posix', async () => {
       expires_in: 3600,
       scope: 'bookmark.read',
       token_type: 'bearer',
-      obtained_at: new Date().toISOString(),
+      obtained_at: new Date().toISOString()
     });
-
-    const mode = fs.statSync(tokenPath).mode & 0o777;
-    assert.equal(mode, 0o600);
+    assert.equal(fs.statSync(tokenPath).mode & 0o777, 0o600);
   } finally {
-    process.env.FT_DATA_DIR = origEnv;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    env.restore();
   }
 });
 
-test('refreshOAuthToken: returns new token pair on success', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-xauth-refresh-'));
-  const origEnv = process.env.FT_DATA_DIR;
-  process.env.FT_DATA_DIR = tmpDir;
-
-  // Create a minimal .env.local so loadXApiConfig() works
-  const envPath = path.join(tmpDir, '.env.local');
-  fs.writeFileSync(envPath, 'X_API_KEY=key\nX_API_SECRET=secret\nX_CLIENT_ID=ci\nX_CLIENT_SECRET=cs\nX_CALLBACK_URL=http://127.0.0.1:3000/callback\n');
-
+test('buildTwitterOAuthUrl uses PKCE and bookmark scopes', () => {
+  const env = setupEnv(
+    'X_CLIENT_ID=native-client\nX_CALLBACK_URL=http://127.0.0.1:3000/callback\n'
+  );
   try {
-    const mockResponse = {
+    const result = buildTwitterOAuthUrl();
+    const url = new URL(result.url);
+    assert.equal(url.hostname, 'x.com');
+    assert.equal(url.searchParams.get('client_id'), 'native-client');
+    assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+    assert.match(url.searchParams.get('scope') ?? '', /bookmark\.read/);
+    assert.ok(result.state.length >= 20);
+    assert.ok(result.verifier.length >= 40);
+  } finally {
+    env.restore();
+  }
+});
+
+test('refreshOAuthToken supports a public client without Basic authentication', async () => {
+  const env = setupEnv(
+    'X_CLIENT_ID=native-client\nX_CALLBACK_URL=http://127.0.0.1:3000/callback\n'
+  );
+  const originalFetch = globalThis.fetch;
+  let capturedBody: URLSearchParams | null = null;
+  let capturedHeaders: HeadersInit | undefined;
+  globalThis.fetch = async (_url: URL | RequestInfo, init?: RequestInit) => {
+    capturedBody = init?.body as URLSearchParams;
+    capturedHeaders = init?.headers;
+    return {
       ok: true,
       status: 200,
-      text: async () => JSON.stringify({
-        access_token: 'new-access-token',
-        refresh_token: 'new-refresh-token',
-        expires_in: 7200,
-        scope: 'bookmark.read offline.access',
-        token_type: 'bearer'
-      })
-    };
-    const originalFetch = globalThis.fetch;
-    let fetchCallCount = 0;
-    let capturedBody: URLSearchParams | null = null;
+      text: async () =>
+        JSON.stringify({
+          access_token: 'new-access-token',
+          refresh_token: 'new-refresh-token',
+          expires_in: 7200,
+          scope: 'bookmark.read offline.access',
+          token_type: 'bearer'
+        })
+    } as Response;
+  };
 
-    globalThis.fetch = async (url: URL | RequestInfo, init?: RequestInit) => {
-      fetchCallCount++;
-      capturedBody = init?.body as URLSearchParams;
-      return mockResponse;
-    };
-
-    try {
-      const result = await refreshOAuthToken('old-refresh-token');
-
-      assert.equal(fetchCallCount, 1, 'fetch should be called once');
-      assert.equal(result.access_token, 'new-access-token');
-      assert.equal(result.refresh_token, 'new-refresh-token');
-      assert.equal(result.expires_in, 7200);
-      assert.ok(result.obtained_at, 'should have obtained_at timestamp');
-      assert.ok(capturedBody, 'body should be captured');
-      assert.equal(capturedBody!.get('grant_type'), 'refresh_token');
-      assert.equal(capturedBody!.get('refresh_token'), 'old-refresh-token');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+  try {
+    const result = await refreshOAuthToken('old-refresh-token');
+    assert.equal(result.access_token, 'new-access-token');
+    assert.equal(result.refresh_token, 'new-refresh-token');
+    assert.equal(capturedBody?.get('client_id'), 'native-client');
+    assert.equal(capturedBody?.get('refresh_token'), 'old-refresh-token');
+    assert.equal((capturedHeaders as Record<string, string>).Authorization, undefined);
   } finally {
-    process.env.FT_DATA_DIR = origEnv;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    globalThis.fetch = originalFetch;
+    env.restore();
   }
 });
 
-test('refreshOAuthToken: throws on expired refresh token', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-xauth-refresh-expired-'));
-  const origEnv = process.env.FT_DATA_DIR;
-  process.env.FT_DATA_DIR = tmpDir;
-
-  const envPath = path.join(tmpDir, '.env.local');
-  fs.writeFileSync(envPath, 'X_API_KEY=key\nX_API_SECRET=secret\nX_CLIENT_ID=ci\nX_CLIENT_SECRET=cs\nX_CALLBACK_URL=http://127.0.0.1:3000/callback\n');
-
+test('refreshOAuthToken adds Basic authentication for an explicit confidential client', async () => {
+  const env = setupEnv('X_CLIENT_ID=client\nX_CLIENT_SECRET=secret\n');
+  const originalFetch = globalThis.fetch;
+  let authorization: string | undefined;
+  globalThis.fetch = async (_url: URL | RequestInfo, init?: RequestInit) => {
+    authorization = (init?.headers as Record<string, string>).Authorization;
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({access_token: 'access'})
+    } as Response;
+  };
   try {
-    const mockResponse = {
+    await refreshOAuthToken('refresh');
+    assert.match(authorization ?? '', /^Basic /);
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.restore();
+  }
+});
+
+test('refreshOAuthToken explains expired sessions using the new CLI', async () => {
+  const env = setupEnv('X_CLIENT_ID=native-client\n');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    ({
       ok: false,
       status: 401,
-      text: async () => JSON.stringify({ error: 'invalid_request', error_description: 'Refresh token is invalid or has expired' })
-    };
-    const originalFetch = globalThis.fetch;
-
-    globalThis.fetch = async () => mockResponse;
-
-    try {
-      await refreshOAuthToken('expired-token');
-      assert.fail('should have thrown');
-    } catch (err: any) {
-      assert.equal(err.message, 'OAuth session expired. Re-run: ft auth');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+      text: async () =>
+        JSON.stringify({
+          error: 'invalid_grant',
+          error_description: 'Refresh token is invalid or expired'
+        })
+    }) as Response;
+  try {
+    await assert.rejects(() => refreshOAuthToken('expired-token'), /Re-run: memoria-x auth/);
   } finally {
-    process.env.FT_DATA_DIR = origEnv;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    globalThis.fetch = originalFetch;
+    env.restore();
   }
 });
