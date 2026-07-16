@@ -44,7 +44,7 @@ jobs:
           set -o pipefail
           pnpm run release:pack 2>&1 | tee release-pack.log
       - name: Upload connector package artifacts
-        if: always() && matrix.node == 24
+        if: matrix.node == 24
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memoria-x-npm-node-${{ matrix.node }}
