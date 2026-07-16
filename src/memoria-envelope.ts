@@ -16,13 +16,30 @@ function jsonObject(value: unknown): JsonObject {
   return JSON.parse(JSON.stringify(value ?? {})) as JsonObject;
 }
 
+function mediaDescriptions(record: BookmarkRecord): string[] {
+  return (record.mediaObjects ?? [])
+    .map((media) => media.extAltText?.trim())
+    .filter((value): value is string => Boolean(value));
+}
+
 function knowledgeContent(record: BookmarkRecord): string {
-  const sections = [record.text.trim()];
+  const sections: string[] = [];
+  if (record.text.trim()) sections.push(record.text.trim());
   if (record.quotedTweet?.text?.trim()) {
     const attribution = record.quotedTweet.authorHandle ? `@${record.quotedTweet.authorHandle}` : 'quoted post';
     sections.push(`Quoted from ${attribution}:\n${record.quotedTweet.text.trim()}`);
   }
-  return sections.filter(Boolean).join('\n\n');
+
+  const descriptions = mediaDescriptions(record);
+  if (descriptions.length > 0) {
+    sections.push(`Media descriptions:\n${descriptions.map((description) => `- ${description}`).join('\n')}`);
+  }
+
+  if (sections.length === 0) {
+    const author = record.authorHandle ? ` by @${record.authorHandle}` : '';
+    sections.push(`Saved X post${author}. Original source: ${record.url}`);
+  }
+  return sections.join('\n\n');
 }
 
 export function bookmarkToMemoriaEnvelope(record: BookmarkRecord): MemoriaIngestEnvelopeV1 {
