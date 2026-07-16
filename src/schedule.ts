@@ -48,7 +48,13 @@ function environmentXml(): string {
     HOME: os.homedir(),
     PATH: process.env.PATH || FALLBACK_PATH
   };
-  for (const key of ['MEMORIA_COMMAND', 'MEMORIA_DB', 'MEMORIA_HOME', 'MEMORIA_X_HOME', 'FT_DATA_DIR']) {
+  for (const key of [
+    'MEMORIA_COMMAND',
+    'MEMORIA_DB',
+    'MEMORIA_HOME',
+    'MEMORIA_X_HOME',
+    'FT_DATA_DIR'
+  ]) {
     const value = process.env[key];
     if (value) environment[key] = value;
   }
@@ -60,9 +66,11 @@ function environmentXml(): string {
 export function installDailySchedule(options: {
   time: string;
   browser?: string;
+  api?: boolean;
   executable?: string;
 }): string {
   ensureMac();
+  if (options.api && options.browser) throw new Error('Choose either API or browser synchronization.');
   const {hour, minute} = parseTime(options.time);
   const script = path.resolve(options.executable ?? process.argv[1] ?? '');
   if (!script) throw new Error('Unable to determine the memoria-x executable path.');
@@ -70,6 +78,7 @@ export function installDailySchedule(options: {
   const logs = connectorLogsDir();
   mkdirSync(logs, {recursive: true, mode: 0o700});
   const args = [process.execPath, script, 'sync', '--ingest', '--quiet'];
+  if (options.api) args.push('--api');
   if (options.browser) args.push('--browser', options.browser);
   const argumentsXml = args.map((argument) => `      <string>${xml(argument)}</string>`).join('\n');
   const file = plistPath();
