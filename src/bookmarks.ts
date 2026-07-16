@@ -41,11 +41,13 @@ function makeBookmark(record: Partial<BookmarkRecord> & Pick<BookmarkRecord, 'id
     text: record.text,
     authorHandle: record.authorHandle,
     authorName: record.authorName,
+    postedAt: record.postedAt,
     bookmarkedAt: record.bookmarkedAt,
     syncedAt: record.syncedAt ?? new Date().toISOString(),
     media: record.media ?? [],
     links: record.links ?? [],
-    tags: record.tags ?? []
+    tags: record.tags ?? [],
+    ingestedVia: record.ingestedVia
   };
 }
 
@@ -116,10 +118,12 @@ export function normalizeBookmarkPage(page: BookmarkApiResponse, syncedAt: strin
       text: tweet.text ?? '',
       authorHandle: user?.username,
       authorName: user?.name,
+      postedAt: tweet.created_at ?? null,
       // The v2 bookmarks endpoint exposes tweet creation, not bookmark creation.
       bookmarkedAt: null,
       syncedAt,
-      links: (tweet.entities?.urls ?? []).map((u) => u.expanded_url ?? u.url ?? '').filter(Boolean)
+      links: (tweet.entities?.urls ?? []).map((u) => u.expanded_url ?? u.url ?? '').filter(Boolean),
+      ingestedVia: 'api'
     });
   });
 }
