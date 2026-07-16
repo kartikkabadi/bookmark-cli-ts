@@ -9,6 +9,12 @@
     "memoria-x": "bin/memoria-x.mjs",
     "ft": "bin/ft.mjs"
   },
+  "files": [
+    "bin/",
+    "dist/",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node scripts/run-tests.mjs",
@@ -20,10 +26,14 @@
     "typecheck": "tsc --noEmit",
     "smoke": "bash scripts/smoke.sh",
     "live:helium": "bash scripts/live-helium-smoke.sh",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build",
     "link:force": "npm link --force"
   },
   "engines": {
     "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT",
   "repository": {
