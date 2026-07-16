@@ -1,5 +1,10 @@
 import type {BookmarkRecord} from './types.js';
-import {MEMORIA_INGEST_SCHEMA, type JsonObject, type JsonValue, type MemoriaIngestEnvelopeV1} from './memoria-protocol.js';
+import {
+  MEMORIA_INGEST_SCHEMA,
+  type JsonObject,
+  type JsonValue,
+  type MemoriaIngestEnvelopeV1
+} from './memoria-protocol.js';
 
 function validIso(value?: string | null): string | null {
   if (!value) return null;
@@ -24,7 +29,13 @@ export function bookmarkToMemoriaEnvelope(record: BookmarkRecord): MemoriaIngest
   const capturedAt = validIso(record.syncedAt) ?? new Date().toISOString();
   const sourceCreatedAt = validIso(record.postedAt);
   const reliableBookmarkedAt = record.ingestedVia === 'graphql' ? null : validIso(record.bookmarkedAt);
-  const links = [...new Set([record.url, ...(record.links ?? []), record.quotedTweet?.url].filter((value): value is string => Boolean(value)))];
+  const links = [
+    ...new Set(
+      [record.url, ...(record.links ?? []), record.quotedTweet?.url].filter(
+        (value): value is string => Boolean(value)
+      )
+    )
+  ];
 
   return {
     schema: MEMORIA_INGEST_SCHEMA,
@@ -41,7 +52,6 @@ export function bookmarkToMemoriaEnvelope(record: BookmarkRecord): MemoriaIngest
       content: knowledgeContent(record),
       url: record.url,
       author: {
-        ...(record.author?.id ? {id: record.author.id} : {}),
         ...(record.authorHandle ? {handle: record.authorHandle} : {}),
         ...(record.authorName ? {name: record.authorName} : {})
       },
@@ -69,5 +79,8 @@ export function bookmarkToMemoriaEnvelope(record: BookmarkRecord): MemoriaIngest
 }
 
 export function bookmarksToMemoriaNdjson(records: BookmarkRecord[]): string {
-  return records.map((record) => JSON.stringify(bookmarkToMemoriaEnvelope(record))).join('\n') + (records.length ? '\n' : '');
+  return (
+    records.map((record) => JSON.stringify(bookmarkToMemoriaEnvelope(record))).join('\n') +
+    (records.length ? '\n' : '')
+  );
 }
