@@ -5,6 +5,11 @@
   "packageManager": "pnpm@10.7.0",
   "type": "module",
   "main": "dist/memoria-x-cli.js",
+  "exports": {
+    ".": {
+      "import": "./dist/memoria-x-cli.js"
+    }
+  },
   "bin": {
     "memoria-x": "bin/memoria-x.mjs",
     "ft": "bin/ft.mjs"
@@ -21,12 +26,14 @@
     "dev": "tsx src/memoria-x-cli.ts",
     "start": "node dist/memoria-x-cli.js",
     "lint": "eslint src/",
-    "format": "prettier --write src/ tests/",
-    "format:check": "prettier --check src/ tests/",
+    "format": "prettier --write src/ tests/ scripts/*.mjs .github/workflows/*.yml package.json",
+    "format:check": "prettier --check src/ tests/ scripts/*.mjs .github/workflows/*.yml package.json",
     "typecheck": "tsc --noEmit",
     "smoke": "bash scripts/smoke.sh",
     "live:helium": "bash scripts/live-helium-smoke.sh",
-    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run lint && pnpm run format:check && pnpm run smoke",
+    "release:pack": "pnpm run build && node scripts/release-pack.mjs",
+    "prepublishOnly": "pnpm run check && pnpm run release:pack",
     "link:force": "npm link --force"
   },
   "engines": {
@@ -39,6 +46,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kartikkabadi/bookmark-cli-ts.git"
+  },
+  "homepage": "https://github.com/kartikkabadi/bookmark-cli-ts#readme",
+  "bugs": {
+    "url": "https://github.com/kartikkabadi/bookmark-cli-ts/issues"
   },
   "keywords": [
     "hermes-memoria",
