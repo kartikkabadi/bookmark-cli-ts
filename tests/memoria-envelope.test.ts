@@ -47,7 +47,7 @@ test('quoted posts and outbound links become searchable content and provenance',
   assert.equal(JSON.parse(bookmarksToMemoriaNdjson([bookmark()])).schema, 'memoria.ingest.v1');
 });
 
-test('media-only bookmarks always produce non-empty searchable content', () => {
+test('media-only bookmarks preserve GraphQL altText and legacy extAltText', () => {
   const envelope = bookmarkToMemoriaEnvelope(
     bookmark({
       text: '',
@@ -55,12 +55,20 @@ test('media-only bookmarks always produce non-empty searchable content', () => {
         {
           type: 'photo',
           mediaUrl: 'https://pbs.twimg.com/media/example.jpg',
-          extAltText: 'Architecture diagram for resumable agents'
+          altText: 'Architecture diagram for resumable agents'
         }
       ]
     })
   );
   assert.match(envelope.item.content, /Architecture diagram for resumable agents/);
+
+  const legacy = bookmarkToMemoriaEnvelope(
+    bookmark({
+      text: '',
+      mediaObjects: [{extAltText: 'Legacy media description'}]
+    })
+  );
+  assert.match(legacy.item.content, /Legacy media description/);
 
   const fallback = bookmarkToMemoriaEnvelope(bookmark({text: '', mediaObjects: []}));
   assert.match(fallback.item.content, /Saved X post/);
