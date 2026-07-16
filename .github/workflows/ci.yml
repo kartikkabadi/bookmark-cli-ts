@@ -10,31 +10,22 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test on Node ${{ matrix.node-version }}
-    runs-on: ubuntu-latest
+  verify:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20, 22]
-
+        node: [24, 26]
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 10.7.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ matrix.node }}
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Smoke test
-        run: pnpm run smoke
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run smoke

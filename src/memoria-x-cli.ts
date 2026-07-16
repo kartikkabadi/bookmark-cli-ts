@@ -1,0 +1,107 @@
+import {spawnSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
+import {Command} from 'commander';
+import {syncBookmarksGraphQL} from './graphql-bookmarks.js';
+import {writeMemoriaExport} from './memoria-export.js';
+import {ingestIntoMemoria} from './memoria-ingest.js';
+import {dataDir, memoriaExportPath, twitterBookmarksCachePath} from './paths.js';
+import {installDailySchedule, removeDailySchedule, showDailySchedule} from './schedule.js';
+
+function integer(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer.`);
+  return parsed;
+}
+
+function printJson(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function buildMemoriaXCli(): Command {
+  const program = new Command();
+  program.name('memoria-x').description('Sync X bookmarks into Hermes Memoria').version('0.1.0');
+
+  program
+    .command('sync')
+    .description('Incrementally sync X bookmarks and emit the Memoria connector protocol')
+    .option('--browser <name>', 'Browser to read the X session from')
+    .option('--rebuild', 'Crawl from the newest bookmark through all available history')
+    .option('--max-pages <number>', 'Maximum X timeline pages to fetch')
+    .option('--target-adds <number>', 'Stop after adding this many new bookmarks')
+    .option('--stdout', 'Also emit memoria.ingest.v1 NDJSON to stdout')
+    .option('--ingest', 'Pipe the export directly to the local memoria CLI')
+    .option('--quiet', 'Suppress progress and summary output')
+    .action(async (options: {browser?: string; rebuild?: boolean; maxPages?: string; targetAdds?: string; stdout?: boolean; ingest?: boolean; quiet?: boolean}) => {
+      const result = await syncBookmarksGraphQL({
+        incremental: !options.rebuild,
+        ...(options.browser ? {browser: options.browser} : {}),
+        ...(options.maxPages ? {maxPages: integer(options.maxPages, 'max-pages')} : {}),
+        ...(options.targetAdds ? {targetAdds: integer(options.targetAdds, 'target-adds')} : {}),
+        ...(!options.quiet
+          ? {
+              onProgress: (progress) => {
+                process.stderr.write(`\rSyncing X bookmarks: ${progress.page} pages, ${progress.newAdded} new`);
+                if (progress.done) process.stderr.write('\n');
+              }
+            }
+          : {})
+      });
+      const exported = await writeMemoriaExport();
+      if (options.ingest) await ingestIntoMemoria(exported.ndjson);
+      if (options.stdout) process.stdout.write(exported.ndjson);
+      if (!options.quiet) {
+        process.stderr.write(`${JSON.stringify({sync: result, export: {path: exported.filePath, count: exported.count}, ingested: Boolean(options.ingest)}, null, 2)}\n`);
+      }
+    });
+
+  program
+    .command('export')
+    .description('Convert the existing local X archive to memoria.ingest.v1 NDJSON')
+    .argument('[file]', 'Output file', memoriaExportPath())
+    .option('--stdout', 'Emit the NDJSON to stdout')
+    .action(async (file: string, options: {stdout?: boolean}) => {
+      const exported = await writeMemoriaExport(file);
+      if (options.stdout) process.stdout.write(exported.ndjson);
+      else printJson({path: exported.filePath, count: exported.count});
+    });
+
+  program
+    .command('doctor')
+    .description('Inspect connector storage and the local Memoria command')
+    .action(() => {
+      const memoriaCommand = process.env.MEMORIA_COMMAND ?? 'memoria';
+      const memoria = spawnSync(memoriaCommand, ['--version'], {encoding: 'utf8'});
+      printJson({
+        healthy: existsSync(twitterBookmarksCachePath()),
+        dataDir: dataDir(),
+        cache: {path: twitterBookmarksCachePath(), exists: existsSync(twitterBookmarksCachePath())},
+        export: {path: memoriaExportPath(), exists: existsSync(memoriaExportPath())},
+        memoria: {
+          command: memoriaCommand,
+          available: !memoria.error && memoria.status === 0,
+          version: memoria.stdout?.trim() || null
+        },
+        node: process.version
+      });
+    });
+
+  program.command('path').description('Print the connector data directory').action(() => console.log(dataDir()));
+
+  const schedule = program.command('schedule').description('Manage daily local synchronization');
+  schedule
+    .command('install')
+    .description('Install a macOS LaunchAgent that syncs and ingests daily')
+    .option('--time <HH:MM>', 'Local daily run time', '07:00')
+    .option('--browser <name>', 'Browser to read the X session from')
+    .action((options: {time: string; browser?: string}) => {
+      printJson({installed: true, path: installDailySchedule({time: options.time, browser: options.browser})});
+    });
+  schedule.command('show').description('Show the installed schedule').action(() => printJson(showDailySchedule()));
+  schedule.command('remove').description('Remove the installed schedule').action(() => printJson({removed: true, path: removeDailySchedule()}));
+
+  return program;
+}
+
+export async function runMemoriaXCli(argv = process.argv): Promise<void> {
+  await buildMemoriaXCli().parseAsync(argv);
+}

@@ -2,10 +2,25 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 
-export function dataDir(): string {
-  const override = process.env.FT_DATA_DIR;
-  if (override) return override;
+export function modernDataDir(): string {
+  return path.join(os.homedir(), '.hermes', 'memoria', 'connectors', 'x');
+}
+
+export function legacyDataDir(): string {
   return path.join(os.homedir(), '.ft-bookmarks');
+}
+
+export function dataDir(): string {
+  const override = process.env.MEMORIA_X_HOME ?? process.env.FT_DATA_DIR;
+  if (override) return path.resolve(override);
+
+  const modern = modernDataDir();
+  if (fs.existsSync(modern)) return modern;
+
+  const legacy = legacyDataDir();
+  if (fs.existsSync(legacy)) return legacy;
+
+  return modern;
 }
 
 function ensureDirSync(dir: string): void {
@@ -52,6 +67,14 @@ export function twitterBookmarksIndexPath(): string {
   return path.join(dataDir(), 'bookmarks.db');
 }
 
+export function memoriaExportPath(): string {
+  return path.join(dataDir(), 'memoria.ndjson');
+}
+
+export function connectorLogsDir(): string {
+  return path.join(dataDir(), 'logs');
+}
+
 export function preferencesPath(): string {
   return path.join(dataDir(), '.preferences');
 }
@@ -59,8 +82,6 @@ export function preferencesPath(): string {
 export function isFirstRun(): boolean {
   return !fs.existsSync(twitterBookmarksCachePath());
 }
-
-// ── Markdown wiki paths ──────────────────────────────────────────────────
 
 export function mdDir(): string {
   return path.join(dataDir(), 'md');
