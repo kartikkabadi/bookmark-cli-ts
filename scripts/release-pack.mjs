@@ -97,20 +97,12 @@ function main() {
       {cwd: cleanRoom}
     );
 
-    const installedRoot = path.join(
-      cleanRoom,
-      'node_modules',
-      '@hermes-memoria',
-      'x-connector'
-    );
+    const installedRoot = path.join(cleanRoom, 'node_modules', '@hermes-memoria', 'x-connector');
     const manifest = readJson(path.join(installedRoot, 'package.json'));
     assert(manifest.name === packageName, 'Packed package name changed');
     assert(manifest.version === version, 'Packed package version changed');
     assert(manifest.license === 'MIT', 'Packed package must declare the MIT license');
-    assert(
-      manifest.engines?.node === '>=24',
-      'Packed package must retain the Node >=24 contract'
-    );
+    assert(manifest.engines?.node === '>=24', 'Packed package must retain the Node >=24 contract');
     assert(manifest.publishConfig?.access === 'public', 'Packed package must remain public');
     assert(
       manifest.repository?.url === 'git+https://github.com/kartikkabadi/bookmark-cli-ts.git',
@@ -148,7 +140,10 @@ function main() {
       cwd: cleanRoom,
       shell: process.platform === 'win32'
     });
-    assert(reportedVersion === version, `memoria-x reported ${reportedVersion}; expected ${version}`);
+    assert(
+      reportedVersion === version,
+      `memoria-x reported ${reportedVersion}; expected ${version}`
+    );
     const legacyHelp = run(legacyFt, ['--help'], {
       cwd: cleanRoom,
       shell: process.platform === 'win32'
