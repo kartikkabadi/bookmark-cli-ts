@@ -18,7 +18,7 @@ function jsonObject(value: unknown): JsonObject {
 
 function mediaDescriptions(record: BookmarkRecord): string[] {
   return (record.mediaObjects ?? [])
-    .map((media) => media.extAltText?.trim())
+    .map((media) => media.altText?.trim() || media.extAltText?.trim())
     .filter((value): value is string => Boolean(value));
 }
 
