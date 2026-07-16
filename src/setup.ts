@@ -126,6 +126,7 @@ export interface SetupOptions {
 
 const MINIMUM_MEMORIA_VERSION = [0, 2, 0] as const;
 const DEFAULT_HOSTS: SetupHost[] = ['codex', 'claude'];
+const SENSITIVE_ARGUMENTS = new Set(['--csrf-token', '--cookie-header']);
 
 export const defaultSetupRunner: SetupRunner = {
   run(command, args, options) {
@@ -160,6 +161,10 @@ export class SetupFailure extends Error {
   readonly receipt: SetupReceipt;
 
   constructor(message: string, receipt: SetupReceipt, cause?: unknown) {
+    receipt.rollback.attempted =
+      receipt.rollback.attempted ||
+      receipt.rollback.actions.length > 0 ||
+      receipt.rollback.errors.length > 0;
     super(message, cause === undefined ? undefined : {cause});
     this.name = 'SetupFailure';
     this.receipt = receipt;
@@ -203,10 +208,21 @@ function successful(result: SetupCommandResult): boolean {
   return !result.error && result.status === 0;
 }
 
+function safeArguments(args: readonly string[]): string[] {
+  const safe = [...args];
+  for (let index = 0; index < safe.length; index += 1) {
+    const argument = safe[index];
+    if (!argument || !SENSITIVE_ARGUMENTS.has(argument)) continue;
+    if (index + 1 < safe.length) safe[index + 1] = '<redacted>';
+    index += 1;
+  }
+  return safe;
+}
+
 function commandError(command: string, args: string[], result: SetupCommandResult): Error {
   const detail =
     result.stderr.trim() || result.stdout.trim() || result.error?.message || 'unknown error';
-  return new Error(`${command} ${args.join(' ')} failed: ${detail}`);
+  return new Error(`${command} ${safeArguments(args).join(' ')} failed: ${detail}`);
 }
 
 function runRequired(
@@ -235,7 +251,7 @@ function runJson(
     return parsed as Record<string, unknown>;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`${command} ${args.join(' ')} returned invalid JSON: ${detail}`);
+    throw new Error(`${command} ${safeArguments(args).join(' ')} returned invalid JSON: ${detail}`);
   }
 }
 
@@ -245,10 +261,7 @@ function parseVersion(value: string): [number, number, number] {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
-function versionAtLeast(
-  version: readonly number[],
-  minimum: readonly number[]
-): boolean {
+function versionAtLeast(version: readonly number[], minimum: readonly number[]): boolean {
   for (let index = 0; index < minimum.length; index += 1) {
     const current = version[index] ?? 0;
     const required = minimum[index] ?? 0;
@@ -326,11 +339,7 @@ function failureMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function hostInstallArgs(
-  host: SetupHost,
-  memoriaCommand: string,
-  dryRun = false
-): string[] {
+function hostInstallArgs(host: SetupHost, memoriaCommand: string, dryRun = false): string[] {
   return [
     '--json',
     'host',
@@ -360,9 +369,7 @@ export function runSetup(options: SetupOptions = {}): SetupReceipt {
   const hostsEnabled = options.skipHosts !== true;
   const scheduleEnabled = options.schedule !== false;
   const explicitHosts = options.hosts !== undefined;
-  const selectedHosts = hostsEnabled
-    ? uniqueHosts(options.hosts ?? DEFAULT_HOSTS)
-    : [];
+  const selectedHosts = hostsEnabled ? uniqueHosts(options.hosts ?? DEFAULT_HOSTS) : [];
   const dailyTime = validateTime(options.dailyTime ?? '07:00');
   const syncArgs = buildSyncArgs(options);
 
@@ -379,17 +386,13 @@ export function runSetup(options: SetupOptions = {}): SetupReceipt {
   const versionOutput = runRequired(runner, memoriaCommand, ['--version'], environment);
   const version = parseVersion(versionOutput);
   if (!versionAtLeast(version, MINIMUM_MEMORIA_VERSION)) {
-    throw new Error(
-      `Hermes Memoria 0.2.0 or newer is required; found ${versionOutput}.`
-    );
+    throw new Error(`Hermes Memoria 0.2.0 or newer is required; found ${versionOutput}.`);
   }
 
   const hostReceipts: SetupHostReceipt[] = selectedHosts.map((host) => {
     const before = readHostStatus(runner, memoriaCommand, host, environment);
     if (explicitHosts && !before.available) {
-      throw new Error(
-        `${host} is not available. Install it or remove it from the setup host list.`
-      );
+      throw new Error(`${host} is not available. Install it or remove it from the setup host list.`);
     }
     if (before.serverConfigured && !before.serverMatches) {
       throw new Error(
@@ -414,11 +417,7 @@ export function runSetup(options: SetupOptions = {}): SetupReceipt {
     };
   });
 
-  if (
-    hostsEnabled &&
-    !explicitHosts &&
-    hostReceipts.every((host) => !host.before.available)
-  ) {
+  if (hostsEnabled && !explicitHosts && hostReceipts.every((host) => !host.before.available)) {
     throw new Error(
       'No supported agent host is available. Install Codex or Claude Code, or rerun setup with --skip-hosts.'
     );
@@ -532,12 +531,7 @@ export function runSetup(options: SetupOptions = {}): SetupReceipt {
       receipt.operations.push(`installed daily sync at ${dailyTime}`);
     }
 
-    const doctor = runJson(
-      runner,
-      memoriaCommand,
-      ['--json', 'doctor'],
-      environment
-    );
+    const doctor = runJson(runner, memoriaCommand, ['--json', 'doctor'], environment);
     receipt.memoria.doctor = doctor;
     if (doctor.healthy !== true) {
       throw new Error('Hermes Memoria doctor did not report a healthy vault.');
@@ -570,16 +564,19 @@ export function runSetup(options: SetupOptions = {}): SetupReceipt {
       try {
         const current = scheduleAdapter.show();
         if (current.installed) {
+          receipt.rollback.attempted = true;
           scheduleAdapter.remove();
           receipt.schedule.action = 'rolled-back';
           receipt.rollback.actions.push('removed setup-created daily schedule');
         }
       } catch (rollbackError) {
+        receipt.rollback.attempted = true;
         receipt.rollback.errors.push(`schedule rollback failed: ${failureMessage(rollbackError)}`);
       }
     }
 
     for (const host of installedHosts.reverse()) {
+      receipt.rollback.attempted = true;
       try {
         runJson(
           runner,
@@ -591,9 +588,7 @@ export function runSetup(options: SetupOptions = {}): SetupReceipt {
         if (hostReceipt) hostReceipt.action = 'rolled-back';
         receipt.rollback.actions.push(`removed setup-created ${host} host registration`);
       } catch (rollbackError) {
-        receipt.rollback.errors.push(
-          `${host} rollback failed: ${failureMessage(rollbackError)}`
-        );
+        receipt.rollback.errors.push(`${host} rollback failed: ${failureMessage(rollbackError)}`);
       }
     }
 
