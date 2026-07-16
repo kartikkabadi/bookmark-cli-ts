@@ -38,6 +38,19 @@ if ! grep -q -- "--cookie-header" /tmp/memoria-x-help.txt; then
   exit 1
 fi
 
+echo "==> Transactional setup help"
+node bin/memoria-x.mjs setup --help >/tmp/memoria-x-setup-help.txt
+if ! grep -q -- "--dry-run" /tmp/memoria-x-setup-help.txt; then
+  echo "Expected memoria-x setup help to expose dry-run" >&2
+  cat /tmp/memoria-x-setup-help.txt >&2
+  exit 1
+fi
+if ! grep -q -- "--skip-hosts" /tmp/memoria-x-setup-help.txt; then
+  echo "Expected memoria-x setup help to expose host opt-out" >&2
+  cat /tmp/memoria-x-setup-help.txt >&2
+  exit 1
+fi
+
 echo "==> Direct development entrypoint"
 pnpm exec tsx src/memoria-x-cli.ts --help >/tmp/memoria-x-dev-help.txt
 if ! grep -q "memoria-x" /tmp/memoria-x-dev-help.txt; then
