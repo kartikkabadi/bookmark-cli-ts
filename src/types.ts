@@ -8,6 +8,7 @@ export interface BookmarkMediaObject {
   mediaUrl?: string;
   previewUrl?: string;
   type?: string;
+  altText?: string;
   extAltText?: string;
   width?: number;
   height?: number;
