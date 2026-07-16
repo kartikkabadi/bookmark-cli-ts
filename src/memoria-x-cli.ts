@@ -24,6 +24,10 @@ function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function nodeMajor(): number {
+  return Number(process.versions.node.split('.')[0]);
+}
+
 export function buildMemoriaXCli(): Command {
   const program = new Command();
   program.name('memoria-x').description('Sync X bookmarks into Hermes Memoria').version('0.1.0');
@@ -148,8 +152,9 @@ export function buildMemoriaXCli(): Command {
       const memoriaCommand = process.env.MEMORIA_COMMAND ?? 'memoria';
       const memoria = spawnSync(memoriaCommand, ['--version'], {encoding: 'utf8'});
       const cacheExists = existsSync(twitterBookmarksCachePath());
+      const supportedNode = Number.isInteger(nodeMajor()) && nodeMajor() >= 24;
       printJson({
-        healthy: process.versions.node.split('.')[0] !== undefined,
+        healthy: supportedNode,
         initialized: cacheExists,
         dataDir: dataDir(),
         cache: {path: twitterBookmarksCachePath(), exists: cacheExists},
@@ -159,7 +164,7 @@ export function buildMemoriaXCli(): Command {
           available: !memoria.error && memoria.status === 0,
           version: memoria.stdout?.trim() || null
         },
-        node: process.version
+        node: {version: process.version, supported: supportedNode}
       });
     });
 
@@ -173,11 +178,16 @@ export function buildMemoriaXCli(): Command {
     .command('install')
     .description('Install a macOS LaunchAgent that syncs and ingests daily')
     .option('--time <HH:MM>', 'Local daily run time', '07:00')
+    .option('--api', 'Use the official X API')
     .option('--browser <name>', 'Browser to read the X session from')
-    .action((options: {time: string; browser?: string}) => {
+    .action((options: {time: string; api?: boolean; browser?: string}) => {
       printJson({
         installed: true,
-        path: installDailySchedule({time: options.time, browser: options.browser})
+        path: installDailySchedule({
+          time: options.time,
+          ...(options.api ? {api: true} : {}),
+          ...(options.browser ? {browser: options.browser} : {})
+        })
       });
     });
   schedule
@@ -193,5 +203,12 @@ export function buildMemoriaXCli(): Command {
 }
 
 export async function runMemoriaXCli(argv = process.argv): Promise<void> {
-  await buildMemoriaXCli().parseAsync(argv);
+  try {
+    await buildMemoriaXCli().parseAsync(argv);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('ft auth')) {
+      throw new Error(error.message.replaceAll('ft auth', 'memoria-x auth'), {cause: error});
+    }
+    throw error;
+  }
 }
