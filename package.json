@@ -30,10 +30,11 @@
     "format:check": "prettier --check src/ tests/",
     "release:format": "prettier --config .prettierrc.release.json --write scripts/release-*.mjs .prettierrc.release.json",
     "release:format:check": "prettier --config .prettierrc.release.json --check scripts/release-*.mjs .prettierrc.release.json",
+    "release:check": "node --check scripts/release-pack.mjs && node --check scripts/release-publish.mjs && pnpm run release:format:check",
     "typecheck": "tsc --noEmit",
     "smoke": "bash scripts/smoke.sh",
     "live:helium": "bash scripts/live-helium-smoke.sh",
-    "check": "pnpm run smoke && pnpm run release:format:check",
+    "check": "pnpm run smoke && pnpm run release:check",
     "release:pack": "pnpm run build && node scripts/release-pack.mjs",
     "prepublishOnly": "pnpm run check",
     "link:force": "npm link --force"
