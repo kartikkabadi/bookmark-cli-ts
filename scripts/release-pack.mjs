@@ -1,6 +1,14 @@
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,7 +27,10 @@ function run(command, args, options = {}) {
     shell: options.shell ?? false
   });
   if (result.error || result.status !== 0) {
-    const detail = [result.stdout, result.stderr, result.error?.message].filter(Boolean).join('\n').trim();
+    const detail = [result.stdout, result.stderr, result.error?.message]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
     throw new Error(`${command} ${args.join(' ')} failed${detail ? `:\n${detail}` : ''}`);
   }
   return result.stdout.trim();
@@ -50,7 +61,10 @@ function binPath(cleanRoom, name) {
 function main() {
   const sourceManifest = readJson(path.join(repositoryRoot, 'package.json'));
   const version = sourceManifest.version;
-  assert(sourceManifest.name === packageName, `Unexpected package name ${String(sourceManifest.name)}`);
+  assert(
+    sourceManifest.name === packageName,
+    `Unexpected package name ${String(sourceManifest.name)}`
+  );
   assert(typeof version === 'string' && version.length > 0, 'Package version is missing');
 
   rmSync(artifactDirectory, {recursive: true, force: true});
@@ -83,12 +97,20 @@ function main() {
       {cwd: cleanRoom}
     );
 
-    const installedRoot = path.join(cleanRoom, 'node_modules', '@hermes-memoria', 'x-connector');
+    const installedRoot = path.join(
+      cleanRoom,
+      'node_modules',
+      '@hermes-memoria',
+      'x-connector'
+    );
     const manifest = readJson(path.join(installedRoot, 'package.json'));
     assert(manifest.name === packageName, 'Packed package name changed');
     assert(manifest.version === version, 'Packed package version changed');
     assert(manifest.license === 'MIT', 'Packed package must declare the MIT license');
-    assert(manifest.engines?.node === '>=24', 'Packed package must retain the Node >=24 contract');
+    assert(
+      manifest.engines?.node === '>=24',
+      'Packed package must retain the Node >=24 contract'
+    );
     assert(manifest.publishConfig?.access === 'public', 'Packed package must remain public');
     assert(
       manifest.repository?.url === 'git+https://github.com/kartikkabadi/bookmark-cli-ts.git',
@@ -108,7 +130,10 @@ function main() {
       'bin/memoria-x.mjs',
       'bin/ft.mjs'
     ]) {
-      assert(existsSync(path.join(installedRoot, relativePath)), `Packed package is missing ${relativePath}`);
+      assert(
+        existsSync(path.join(installedRoot, relativePath)),
+        `Packed package is missing ${relativePath}`
+      );
     }
 
     run(process.execPath, ['--input-type=module', '--eval', `await import('${packageName}')`], {
