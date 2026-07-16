@@ -33,7 +33,7 @@
     "live:helium": "bash scripts/live-helium-smoke.sh",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run lint && pnpm run format:check && pnpm run smoke",
     "release:pack": "pnpm run build && node scripts/release-pack.mjs",
-    "prepublishOnly": "pnpm run check && pnpm run release:pack",
+    "prepublishOnly": "pnpm run check",
     "link:force": "npm link --force"
   },
   "engines": {
