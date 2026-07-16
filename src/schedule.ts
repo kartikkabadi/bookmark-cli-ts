@@ -53,7 +53,21 @@ function environmentXml(): string {
     'MEMORIA_DB',
     'MEMORIA_HOME',
     'MEMORIA_X_HOME',
-    'FT_DATA_DIR'
+    'MEMORIA_X_BROWSER',
+    'MEMORIA_X_CHROME_USER_DATA_DIR',
+    'MEMORIA_X_CHROME_PROFILE_DIRECTORY',
+    'FT_DATA_DIR',
+    'FT_BROWSER',
+    'FT_CHROME_USER_DATA_DIR',
+    'FT_CHROME_PROFILE_DIRECTORY',
+    'X_CLIENT_ID',
+    'X_CLIENT_SECRET',
+    'X_CALLBACK_URL',
+    'X_API_KEY',
+    'X_CONSUMER_KEY',
+    'X_API_SECRET',
+    'X_SECRET_KEY',
+    'X_BEARER_TOKEN'
   ]) {
     const value = process.env[key];
     if (value) environment[key] = value;
