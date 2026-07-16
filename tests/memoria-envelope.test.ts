@@ -46,3 +46,22 @@ test('quoted posts and outbound links become searchable content and provenance',
   assert.ok(envelope.item.links?.includes('https://x.com/quoted/status/2020000000000000000'));
   assert.equal(JSON.parse(bookmarksToMemoriaNdjson([bookmark()])).schema, 'memoria.ingest.v1');
 });
+
+test('media-only bookmarks always produce non-empty searchable content', () => {
+  const envelope = bookmarkToMemoriaEnvelope(
+    bookmark({
+      text: '',
+      mediaObjects: [
+        {
+          type: 'photo',
+          mediaUrl: 'https://pbs.twimg.com/media/example.jpg',
+          extAltText: 'Architecture diagram for resumable agents'
+        }
+      ]
+    })
+  );
+  assert.match(envelope.item.content, /Architecture diagram for resumable agents/);
+
+  const fallback = bookmarkToMemoriaEnvelope(bookmark({text: '', mediaObjects: []}));
+  assert.match(fallback.item.content, /Saved X post/);
+});
