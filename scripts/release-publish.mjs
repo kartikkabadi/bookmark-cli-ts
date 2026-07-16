@@ -23,7 +23,10 @@ function execute(command, args, options = {}) {
 function run(command, args, options = {}) {
   const result = execute(command, args, options);
   if (result.error || result.status !== 0) {
-    const detail = [result.stdout, result.stderr, result.error?.message].filter(Boolean).join('\n').trim();
+    const detail = [result.stdout, result.stderr, result.error?.message]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
     throw new Error(`${command} ${args.join(' ')} failed${detail ? `:\n${detail}` : ''}`);
   }
   return result.stdout.trim();
@@ -54,11 +57,18 @@ function sleep(milliseconds) {
 }
 
 function packageVersionExists(version) {
-  const result = execute(`npm${commandSuffix}`, ['view', `${packageName}@${version}`, 'version', '--json']);
+  const result = execute(`npm${commandSuffix}`, [
+    'view',
+    `${packageName}@${version}`,
+    'version',
+    '--json'
+  ]);
   if (result.status === 0) return true;
   const detail = `${result.stdout}\n${result.stderr}`;
   if (/E404|404 Not Found|is not in this registry/iu.test(detail)) return false;
-  throw new Error(`Unable to determine whether ${packageName}@${version} exists:\n${detail.trim()}`);
+  throw new Error(
+    `Unable to determine whether ${packageName}@${version} exists:\n${detail.trim()}`
+  );
 }
 
 function waitForRegistry(version) {
@@ -101,7 +111,10 @@ function verifyGlobalInstall(version) {
       cwd: temporaryRoot,
       shell: process.platform === 'win32'
     });
-    assert(reportedVersion === version, `Global memoria-x reported ${reportedVersion}; expected ${version}`);
+    assert(
+      reportedVersion === version,
+      `Global memoria-x reported ${reportedVersion}; expected ${version}`
+    );
     const legacyHelp = run(legacyFt, ['--help'], {
       cwd: temporaryRoot,
       shell: process.platform === 'win32'
@@ -116,7 +129,9 @@ function main() {
   assert(process.env.GITHUB_ACTIONS === 'true', 'Publishing is restricted to GitHub Actions');
   assert(process.env.GITHUB_REF_TYPE === 'tag', 'Publishing requires a tag-triggered workflow');
 
-  const sourceManifest = JSON.parse(readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
+  const sourceManifest = JSON.parse(
+    readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8')
+  );
   assert(sourceManifest.name === packageName, 'Unexpected source package name');
   const version = sourceManifest.version;
   const expectedTag = `v${version}`;
@@ -133,7 +148,10 @@ function main() {
     'Unsupported release manifest schema'
   );
   assert(releaseManifest.name === packageName, 'Release manifest package name is invalid');
-  assert(releaseManifest.version === version, 'Release manifest version does not match package.json');
+  assert(
+    releaseManifest.version === version,
+    'Release manifest version does not match package.json'
+  );
   assert(releaseManifest.filename === tarballName(version), 'Unexpected release tarball filename');
   assert(/^[a-f0-9]{64}$/u.test(releaseManifest.sha256), 'Invalid release SHA-256 digest');
 
