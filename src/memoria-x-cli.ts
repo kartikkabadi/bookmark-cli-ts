@@ -1,5 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {Command} from 'commander';
 import {syncTwitterBookmarks} from './bookmarks.js';
 import {syncBookmarksGraphQL} from './graphql-bookmarks.js';
@@ -42,6 +44,11 @@ export function buildMemoriaXCli(): Command {
     .description('Incrementally sync X bookmarks and emit the Memoria connector protocol')
     .option('--api', 'Use the official X API instead of a browser session')
     .option('--browser <name>', 'Browser to read the X session from')
+    .option('--chrome-user-data-dir <path>', 'Chrome-family user data directory override')
+    .option('--chrome-profile-directory <name>', 'Chrome-family profile directory name')
+    .option('--firefox-profile-dir <path>', 'Firefox profile directory override')
+    .option('--csrf-token <token>', 'Manual X csrf token fallback')
+    .option('--cookie-header <header>', 'Manual X cookie header fallback')
     .option('--rebuild', 'Crawl through all available bookmark history')
     .option('--max-pages <number>', 'Maximum internal X timeline pages to fetch')
     .option('--target-adds <number>', 'Stop after adding this many new bookmarks')
@@ -53,6 +60,11 @@ export function buildMemoriaXCli(): Command {
       async (options: {
         api?: boolean;
         browser?: string;
+        chromeUserDataDir?: string;
+        chromeProfileDirectory?: string;
+        firefoxProfileDir?: string;
+        csrfToken?: string;
+        cookieHeader?: string;
         rebuild?: boolean;
         maxPages?: string;
         targetAdds?: string;
@@ -61,8 +73,16 @@ export function buildMemoriaXCli(): Command {
         ingest?: boolean;
         quiet?: boolean;
       }) => {
-        if (options.api && options.browser) {
-          throw new Error('Choose either --api or --browser, not both.');
+        const browserOverrides = Boolean(
+          options.browser ||
+            options.chromeUserDataDir ||
+            options.chromeProfileDirectory ||
+            options.firefoxProfileDir ||
+            options.csrfToken ||
+            options.cookieHeader,
+        );
+        if (options.api && browserOverrides) {
+          throw new Error('Browser-session flags cannot be combined with --api.');
         }
         if (options.api && options.maxPages) {
           throw new Error('--max-pages applies only to browser-session synchronization.');
@@ -78,6 +98,13 @@ export function buildMemoriaXCli(): Command {
           : await syncBookmarksGraphQL({
               incremental: !options.rebuild,
               ...(options.browser ? {browser: options.browser} : {}),
+              ...(options.chromeUserDataDir ? {chromeUserDataDir: options.chromeUserDataDir} : {}),
+              ...(options.chromeProfileDirectory
+                ? {chromeProfileDirectory: options.chromeProfileDirectory}
+                : {}),
+              ...(options.firefoxProfileDir ? {firefoxProfileDir: options.firefoxProfileDir} : {}),
+              ...(options.csrfToken ? {csrfToken: options.csrfToken} : {}),
+              ...(options.cookieHeader ? {cookieHeader: options.cookieHeader} : {}),
               ...(options.maxPages
                 ? {maxPages: integer(options.maxPages, 'max-pages')}
                 : {}),
@@ -211,4 +238,12 @@ export async function runMemoriaXCli(argv = process.argv): Promise<void> {
     }
     throw error;
   }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  runMemoriaXCli().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`memoria-x: ${message}\n`);
+    process.exitCode = 1;
+  });
 }
