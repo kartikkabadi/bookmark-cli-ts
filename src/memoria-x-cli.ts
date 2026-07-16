@@ -9,6 +9,7 @@ import {writeMemoriaExport} from './memoria-export.js';
 import {ingestIntoMemoria} from './memoria-ingest.js';
 import {dataDir, memoriaExportPath, twitterBookmarksCachePath} from './paths.js';
 import {installDailySchedule, removeDailySchedule, showDailySchedule} from './schedule.js';
+import {runSetup, SetupFailure} from './setup.js';
 import {runTwitterOAuthFlow} from './xauth.js';
 
 const DAILY_FRONTIER_FLOOR = 200;
@@ -38,6 +39,89 @@ export function buildMemoriaXCli(): Command {
     .command('auth')
     .description('Authorize official X API access with OAuth 2.0 PKCE')
     .action(async () => printJson(await runTwitterOAuthFlow()));
+
+  program
+    .command('setup')
+    .description('Initialize Memoria, ingest X bookmarks, configure agent hosts, and schedule daily sync')
+    .option('--api', 'Use the official X API instead of a browser session')
+    .option('--browser <name>', 'Browser to read the X session from')
+    .option('--chrome-user-data-dir <path>', 'Chrome-family user data directory override')
+    .option('--chrome-profile-directory <name>', 'Chrome-family profile directory name')
+    .option('--firefox-profile-dir <path>', 'Firefox profile directory override')
+    .option('--csrf-token <token>', 'Manual X csrf token fallback')
+    .option('--cookie-header <header>', 'Manual X cookie header fallback')
+    .option('--rebuild', 'Crawl through all available bookmark history')
+    .option('--max-pages <number>', 'Maximum internal X timeline pages to fetch')
+    .option('--target-adds <number>', 'Stop after adding this many new bookmarks')
+    .option('--host <name...>', 'Agent hosts to configure: codex and/or claude')
+    .option('--skip-hosts', 'Do not configure Codex or Claude Code')
+    .option('--no-sync', 'Initialize and configure without performing the first X sync')
+    .option('--no-schedule', 'Do not install daily synchronization')
+    .option('--daily <HH:MM>', 'Local daily synchronization time', '07:00')
+    .option('--memoria-command <command>', 'Hermes Memoria executable', process.env.MEMORIA_COMMAND ?? 'memoria')
+    .option('--dry-run', 'Validate and print the setup plan without changing state')
+    .action(
+      (options: {
+        api?: boolean;
+        browser?: string;
+        chromeUserDataDir?: string;
+        chromeProfileDirectory?: string;
+        firefoxProfileDir?: string;
+        csrfToken?: string;
+        cookieHeader?: string;
+        rebuild?: boolean;
+        maxPages?: string;
+        targetAdds?: string;
+        host?: string[];
+        skipHosts?: boolean;
+        sync: boolean;
+        schedule: boolean;
+        daily: string;
+        memoriaCommand: string;
+        dryRun?: boolean;
+      }) => {
+        const script = process.argv[1] ? path.resolve(process.argv[1]) : '';
+        try {
+          printJson(
+            runSetup({
+              memoriaCommand: options.memoriaCommand,
+              connectorScript: script,
+              ...(options.host ? {hosts: options.host} : {}),
+              ...(options.skipHosts ? {skipHosts: true} : {}),
+              sync: options.sync,
+              schedule: options.schedule,
+              dailyTime: options.daily,
+              ...(options.api ? {api: true} : {}),
+              ...(options.browser ? {browser: options.browser} : {}),
+              ...(options.chromeUserDataDir
+                ? {chromeUserDataDir: options.chromeUserDataDir}
+                : {}),
+              ...(options.chromeProfileDirectory
+                ? {chromeProfileDirectory: options.chromeProfileDirectory}
+                : {}),
+              ...(options.firefoxProfileDir
+                ? {firefoxProfileDir: options.firefoxProfileDir}
+                : {}),
+              ...(options.csrfToken ? {csrfToken: options.csrfToken} : {}),
+              ...(options.cookieHeader ? {cookieHeader: options.cookieHeader} : {}),
+              ...(options.rebuild ? {rebuild: true} : {}),
+              ...(options.maxPages
+                ? {maxPages: integer(options.maxPages, 'max-pages')}
+                : {}),
+              ...(options.targetAdds
+                ? {targetAdds: integer(options.targetAdds, 'target-adds')}
+                : {}),
+              ...(options.dryRun ? {dryRun: true} : {})
+            })
+          );
+        } catch (error) {
+          if (error instanceof SetupFailure) {
+            process.stderr.write(`${JSON.stringify(error.receipt, null, 2)}\n`);
+          }
+          throw error;
+        }
+      }
+    );
 
   program
     .command('sync')
@@ -79,7 +163,7 @@ export function buildMemoriaXCli(): Command {
             options.chromeProfileDirectory ||
             options.firefoxProfileDir ||
             options.csrfToken ||
-            options.cookieHeader,
+            options.cookieHeader
         );
         if (options.api && browserOverrides) {
           throw new Error('Browser-session flags cannot be combined with --api.');
