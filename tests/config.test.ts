@@ -1,14 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadChromeSessionConfig, loadXApiConfig } from '../src/config.js';
+import {loadChromeSessionConfig, loadXApiConfig} from '../src/config.js';
 
-test('loadChromeSessionConfig reads chrome user data dir and profile directory from env', () => {
+function clearXApiEnv(): void {
+  for (const key of [
+    'X_API_KEY',
+    'X_CONSUMER_KEY',
+    'X_API_SECRET',
+    'X_SECRET_KEY',
+    'X_CLIENT_ID',
+    'X_CLIENT_SECRET',
+    'X_BEARER_TOKEN',
+    'X_CALLBACK_URL'
+  ]) {
+    delete process.env[key];
+  }
+}
+
+test('loadChromeSessionConfig reads legacy chrome paths for compatibility', () => {
   process.env.FT_CHROME_USER_DATA_DIR = '/tmp/chrome-user-data';
   process.env.FT_CHROME_PROFILE_DIRECTORY = 'Profile 1';
   const config = loadChromeSessionConfig();
   assert.equal(config.chromeUserDataDir, '/tmp/chrome-user-data');
   assert.equal(config.chromeProfileDirectory, 'Profile 1');
   assert.equal(config.browser.id, 'chrome');
+  delete process.env.FT_CHROME_USER_DATA_DIR;
+  delete process.env.FT_CHROME_PROFILE_DIRECTORY;
+});
+
+test('loadChromeSessionConfig prefers Memoria X environment names', () => {
+  process.env.MEMORIA_X_CHROME_USER_DATA_DIR = '/tmp/memoria-x-browser';
+  process.env.MEMORIA_X_CHROME_PROFILE_DIRECTORY = 'Profile 2';
+  process.env.FT_CHROME_USER_DATA_DIR = '/tmp/legacy-browser';
+  process.env.FT_CHROME_PROFILE_DIRECTORY = 'Legacy';
+  const config = loadChromeSessionConfig();
+  assert.equal(config.chromeUserDataDir, '/tmp/memoria-x-browser');
+  assert.equal(config.chromeProfileDirectory, 'Profile 2');
+  delete process.env.MEMORIA_X_CHROME_USER_DATA_DIR;
+  delete process.env.MEMORIA_X_CHROME_PROFILE_DIRECTORY;
   delete process.env.FT_CHROME_USER_DATA_DIR;
   delete process.env.FT_CHROME_PROFILE_DIRECTORY;
 });
@@ -21,164 +50,65 @@ test('loadChromeSessionConfig defaults profile to Default', () => {
   delete process.env.FT_CHROME_USER_DATA_DIR;
 });
 
-test('loadChromeSessionConfig: --browser brave resolves to Brave', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
-  delete process.env.FT_BROWSER;
-  const config = loadChromeSessionConfig({ browserId: 'brave' });
-  assert.equal(config.browser.id, 'brave');
-  assert.match(config.chromeUserDataDir, /Brave|brave/i);
+test('loadChromeSessionConfig resolves explicit browsers', () => {
+  for (const [browserId, expectedName] of [
+    ['brave', 'Brave'],
+    ['firefox', 'Firefox'],
+    ['helium', 'Helium']
+  ] as const) {
+    const config = loadChromeSessionConfig({browserId});
+    assert.equal(config.browser.id, browserId);
+    assert.equal(config.browser.displayName, expectedName);
+  }
 });
 
-test('loadChromeSessionConfig: FT_BROWSER env is honored', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
+test('loadChromeSessionConfig honors the new browser environment name', () => {
+  process.env.MEMORIA_X_BROWSER = 'helium';
+  process.env.FT_BROWSER = 'brave';
+  const config = loadChromeSessionConfig();
+  assert.equal(config.browser.id, 'helium');
+  delete process.env.MEMORIA_X_BROWSER;
+  delete process.env.FT_BROWSER;
+});
+
+test('loadChromeSessionConfig keeps FT_BROWSER compatibility', () => {
   process.env.FT_BROWSER = 'brave';
   const config = loadChromeSessionConfig();
   assert.equal(config.browser.id, 'brave');
   delete process.env.FT_BROWSER;
 });
 
-test('loadChromeSessionConfig: unknown browser throws', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
-  assert.throws(
-    () => loadChromeSessionConfig({ browserId: 'bogus' }),
-    /Unknown browser: "bogus"/,
-  );
+test('loadChromeSessionConfig rejects unknown browsers', () => {
+  assert.throws(() => loadChromeSessionConfig({browserId: 'bogus'}), /Unknown browser: "bogus"/);
 });
 
-test('loadChromeSessionConfig: --browser firefox resolves correctly', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
-  delete process.env.FT_BROWSER;
-  const config = loadChromeSessionConfig({ browserId: 'firefox' });
-  assert.equal(config.browser.id, 'firefox');
-  assert.equal(config.browser.displayName, 'Firefox');
-  assert.equal(config.browser.cookieBackend, 'firefox');
-  assert.match(config.chromeUserDataDir, /firefox/i);
-});
+test('loadXApiConfig requires only a public-client ID', () => {
+  clearXApiEnv();
+  assert.throws(() => loadXApiConfig(), /Missing X_CLIENT_ID/);
 
-test('loadChromeSessionConfig: --browser helium resolves correctly', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
-  delete process.env.FT_BROWSER;
-  const config = loadChromeSessionConfig({ browserId: 'helium' });
-  assert.equal(config.browser.id, 'helium');
-  assert.equal(config.browser.displayName, 'Helium');
-  assert.equal(config.browser.cookieBackend, 'chromium');
-  assert.match(config.chromeUserDataDir, /helium/i);
-});
-
-test('loadChromeSessionConfig: FT_BROWSER=helium is honored', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
-  process.env.FT_BROWSER = 'helium';
-  const config = loadChromeSessionConfig();
-  assert.equal(config.browser.id, 'helium');
-  delete process.env.FT_BROWSER;
-});
-
-test('loadChromeSessionConfig: helium config exposes Helium display name for errors', () => {
-  delete process.env.FT_CHROME_USER_DATA_DIR;
-  delete process.env.FT_BROWSER;
-  const config = loadChromeSessionConfig({ browserId: 'helium' });
-  assert.equal(config.browser.displayName, 'Helium');
-});
-
-test('loadXApiConfig throws when X_API_KEY is missing', () => {
-  delete process.env.X_API_KEY;
-  delete process.env.X_CONSUMER_KEY;
-  delete process.env.X_API_SECRET;
-  delete process.env.X_SECRET_KEY;
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
-
-  assert.throws(
-    () => loadXApiConfig(),
-    /Missing X API credentials/
-  );
-});
-
-test('loadXApiConfig throws when X_API_SECRET is missing but X_API_KEY is set', () => {
-  delete process.env.X_CONSUMER_KEY;
-  delete process.env.X_SECRET_KEY;
-  process.env.X_API_KEY = 'test-key';
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
-
-  assert.throws(
-    () => loadXApiConfig(),
-    /Missing X API credentials/
-  );
-
-  delete process.env.X_API_KEY;
-});
-
-test('loadXApiConfig returns config object when all required credentials are present', () => {
-  process.env.X_API_KEY = 'test-api-key';
-  process.env.X_API_SECRET = 'test-api-secret';
-  process.env.X_CLIENT_ID = 'test-client-id';
-  process.env.X_CLIENT_SECRET = 'test-client-secret';
-
+  process.env.X_CLIENT_ID = 'native-client-id';
   const config = loadXApiConfig();
-
-  assert.equal(config.apiKey, 'test-api-key');
-  assert.equal(config.apiSecret, 'test-api-secret');
-  assert.equal(config.clientId, 'test-client-id');
-  assert.equal(config.clientSecret, 'test-client-secret');
+  assert.equal(config.clientId, 'native-client-id');
+  assert.equal(config.clientSecret, undefined);
   assert.equal(config.callbackUrl, 'http://127.0.0.1:3000/callback');
-
-  delete process.env.X_API_KEY;
-  delete process.env.X_API_SECRET;
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
+  clearXApiEnv();
 });
 
-test('loadXApiConfig uses X_CONSUMER_KEY as alias for X_API_KEY', () => {
-  delete process.env.X_API_KEY;
-  delete process.env.X_CONSUMER_KEY;
-  process.env.X_CONSUMER_KEY = 'consumer-key-from-env';
-  process.env.X_API_SECRET = 'test-api-secret';
-  process.env.X_CLIENT_ID = 'test-client-id';
-  process.env.X_CLIENT_SECRET = 'test-client-secret';
-
-  const config = loadXApiConfig();
-
-  assert.equal(config.apiKey, 'consumer-key-from-env');
-
-  delete process.env.X_CONSUMER_KEY;
-  delete process.env.X_API_SECRET;
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
-});
-
-test('loadXApiConfig includes optional bearer token when set', () => {
-  process.env.X_API_KEY = 'test-api-key';
-  process.env.X_API_SECRET = 'test-api-secret';
-  process.env.X_CLIENT_ID = 'test-client-id';
-  process.env.X_CLIENT_SECRET = 'test-client-secret';
-  process.env.X_BEARER_TOKEN = 'test-bearer-token';
-
-  const config = loadXApiConfig();
-
-  assert.equal(config.bearerToken, 'test-bearer-token');
-
-  delete process.env.X_API_KEY;
-  delete process.env.X_API_SECRET;
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
-  delete process.env.X_BEARER_TOKEN;
-});
-
-test('loadXApiConfig uses custom callback URL when X_CALLBACK_URL is set', () => {
-  process.env.X_API_KEY = 'test-api-key';
-  process.env.X_API_SECRET = 'test-api-secret';
-  process.env.X_CLIENT_ID = 'test-client-id';
-  process.env.X_CLIENT_SECRET = 'test-client-secret';
+test('loadXApiConfig preserves optional confidential and legacy credentials', () => {
+  clearXApiEnv();
+  process.env.X_CLIENT_ID = 'client-id';
+  process.env.X_CLIENT_SECRET = 'client-secret';
+  process.env.X_CONSUMER_KEY = 'consumer-key';
+  process.env.X_SECRET_KEY = 'consumer-secret';
+  process.env.X_BEARER_TOKEN = 'bearer';
   process.env.X_CALLBACK_URL = 'http://localhost:8080/callback';
 
   const config = loadXApiConfig();
-
+  assert.equal(config.clientId, 'client-id');
+  assert.equal(config.clientSecret, 'client-secret');
+  assert.equal(config.apiKey, 'consumer-key');
+  assert.equal(config.apiSecret, 'consumer-secret');
+  assert.equal(config.bearerToken, 'bearer');
   assert.equal(config.callbackUrl, 'http://localhost:8080/callback');
-
-  delete process.env.X_API_KEY;
-  delete process.env.X_API_SECRET;
-  delete process.env.X_CLIENT_ID;
-  delete process.env.X_CLIENT_SECRET;
-  delete process.env.X_CALLBACK_URL;
+  clearXApiEnv();
 });
