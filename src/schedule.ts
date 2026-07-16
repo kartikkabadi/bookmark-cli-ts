@@ -5,9 +5,12 @@ import path from 'node:path';
 import {connectorLogsDir} from './paths.js';
 
 const LABEL = 'dev.hermes.memoria.x-sync';
+const FALLBACK_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin';
 
 function ensureMac(): void {
-  if (process.platform !== 'darwin') throw new Error('Automatic scheduling currently supports macOS LaunchAgents.');
+  if (process.platform !== 'darwin') {
+    throw new Error('Automatic scheduling currently supports macOS LaunchAgents.');
+  }
 }
 
 function plistPath(): string {
@@ -15,7 +18,12 @@ function plistPath(): string {
 }
 
 function xml(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 function parseTime(value: string): {hour: number; minute: number} {
@@ -23,7 +31,9 @@ function parseTime(value: string): {hour: number; minute: number} {
   if (!match) throw new Error('Time must use HH:MM.');
   const hour = Number(match[1]);
   const minute = Number(match[2]);
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || minute < 0 || minute > 59) throw new Error('Time must use a valid 24-hour HH:MM value.');
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error('Time must use a valid 24-hour HH:MM value.');
+  }
   return {hour, minute};
 }
 
@@ -33,7 +43,25 @@ function domainTarget(): string {
   return `gui/${uid}`;
 }
 
-export function installDailySchedule(options: {time: string; browser?: string; executable?: string}): string {
+function environmentXml(): string {
+  const environment: Record<string, string> = {
+    HOME: os.homedir(),
+    PATH: process.env.PATH || FALLBACK_PATH
+  };
+  for (const key of ['MEMORIA_COMMAND', 'MEMORIA_DB', 'MEMORIA_HOME', 'MEMORIA_X_HOME', 'FT_DATA_DIR']) {
+    const value = process.env[key];
+    if (value) environment[key] = value;
+  }
+  return Object.entries(environment)
+    .map(([key, value]) => `    <key>${xml(key)}</key><string>${xml(value)}</string>`)
+    .join('\n');
+}
+
+export function installDailySchedule(options: {
+  time: string;
+  browser?: string;
+  executable?: string;
+}): string {
   ensureMac();
   const {hour, minute} = parseTime(options.time);
   const script = path.resolve(options.executable ?? process.argv[1] ?? '');
@@ -55,6 +83,10 @@ export function installDailySchedule(options: {time: string; browser?: string; e
   <array>
 ${argumentsXml}
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+${environmentXml()}
+  </dict>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>${minute}</integer></dict>
   <key>RunAtLoad</key><false/>
