@@ -32,16 +32,31 @@ Search, ranking, agent retrieval, usage feedback, and MCP live in Hermes Memoria
 - Either a supported browser logged into X or an X Native App configured for OAuth 2.0 PKCE
 - Hermes Memoria installed when using `--ingest` or daily scheduling
 
+## Installation
+
+The npm package is prepared as `@hermes-memoria/x-connector`, but it is not claimed as published until the `@hermes-memoria` npm scope is bootstrapped and the verified release workflow completes.
+
+After publication:
+
+```bash
+npm install --global @hermes-memoria/x-connector
+memoria-x --version
+memoria-x doctor
+```
+
+The legacy `ft` command is installed from the same package for compatibility.
+
 ## Development
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm run typecheck
-pnpm test
-pnpm build
+pnpm run check
+pnpm run release:pack
 
 node bin/memoria-x.mjs doctor
 ```
+
+`release:pack` builds the connector, creates the exact npm tarball, installs it into an empty project, imports the package, and executes npm's generated `memoria-x` and `ft` command shims without publishing anything.
 
 ## Browser-session workflow
 
@@ -125,6 +140,10 @@ X's internal GraphQL timeline `sortIndex` is an ordering value, not a trustworth
 ## Legacy CLI
 
 The old `ft` binary remains temporarily available so existing archives and workflows do not break. It is a compatibility surface, not the new product direction. New automation should use `memoria-x` and `memoria`.
+
+## Releasing
+
+See [`docs/RELEASING.md`](docs/RELEASING.md) for the exact tarball, bootstrap, trusted-publishing, and global-install gates.
 
 ## Provenance
 

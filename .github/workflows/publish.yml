@@ -1,0 +1,63 @@
+name: Publish Memoria X Connector
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Verify tagged commit belongs to main
+        shell: bash
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.7.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use the reviewed OIDC-capable npm CLI
+        run: npm install --global npm@11.5.1
+
+      - name: Install exactly the locked connector workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify source, tests, and CLI behavior
+        run: pnpm run check
+
+      - name: Pack and clean-room test the connector tarball
+        run: pnpm run release:pack
+
+      - name: Upload verified connector artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: memoria-x-${{ github.ref_name }}
+          path: artifacts/npm/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish through npm trusted publishing
+        run: node scripts/release-publish.mjs

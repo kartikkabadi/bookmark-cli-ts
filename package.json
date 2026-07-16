@@ -5,6 +5,11 @@
   "packageManager": "pnpm@10.7.0",
   "type": "module",
   "main": "dist/memoria-x-cli.js",
+  "exports": {
+    ".": {
+      "import": "./dist/memoria-x-cli.js"
+    }
+  },
   "bin": {
     "memoria-x": "bin/memoria-x.mjs",
     "ft": "bin/ft.mjs"
@@ -23,10 +28,15 @@
     "lint": "eslint src/",
     "format": "prettier --write src/ tests/",
     "format:check": "prettier --check src/ tests/",
+    "release:format": "prettier --config .prettierrc.release.json --write scripts/release-*.mjs .prettierrc.release.json",
+    "release:format:check": "prettier --config .prettierrc.release.json --check scripts/release-*.mjs .prettierrc.release.json",
+    "release:check": "node --check scripts/release-pack.mjs && node --check scripts/release-publish.mjs && pnpm run release:format:check",
     "typecheck": "tsc --noEmit",
     "smoke": "bash scripts/smoke.sh",
     "live:helium": "bash scripts/live-helium-smoke.sh",
-    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "check": "pnpm run smoke && pnpm run release:check",
+    "release:pack": "pnpm run build && node scripts/release-pack.mjs",
+    "prepublishOnly": "pnpm run check",
     "link:force": "npm link --force"
   },
   "engines": {
@@ -39,6 +49,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kartikkabadi/bookmark-cli-ts.git"
+  },
+  "homepage": "https://github.com/kartikkabadi/bookmark-cli-ts#readme",
+  "bugs": {
+    "url": "https://github.com/kartikkabadi/bookmark-cli-ts/issues"
   },
   "keywords": [
     "hermes-memoria",
